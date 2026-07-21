@@ -1,6 +1,6 @@
 {
   "project": {
-    "name": "扬州周末共创攻略",
+    "name": "6 人扬州周末旅行",
     "destination": "扬州",
     "days": 2,
     "people": 6,
@@ -137,7 +137,8 @@
         "difficulty": "待核实",
         "horrorLevel": "待核实",
         "usage": "待分配"
-      }
+      },
+      "votes": {}
     },
     {
       "id": "place-b34f514c-cc18-49a3-873b-8651853e07b9",
@@ -189,7 +190,8 @@
         "difficulty": "待核实",
         "horrorLevel": "待核实",
         "usage": "待核实"
-      }
+      },
+      "votes": {}
     },
     {
       "id": "place-001",
@@ -238,7 +240,8 @@
         "difficulty": "待核实",
         "horrorLevel": "待核实",
         "usage": "待分配"
-      }
+      },
+      "votes": {}
     },
     {
       "id": "place-002",
@@ -287,7 +290,8 @@
         "difficulty": "待核实",
         "horrorLevel": "待核实",
         "usage": "待分配"
-      }
+      },
+      "votes": {}
     },
     {
       "id": "place-003",
@@ -336,7 +340,8 @@
         "difficulty": "待核实",
         "horrorLevel": "待核实",
         "usage": "待分配"
-      }
+      },
+      "votes": {}
     },
     {
       "id": "place-004",
@@ -385,7 +390,8 @@
         "difficulty": "待核实",
         "horrorLevel": "待核实",
         "usage": "待分配"
-      }
+      },
+      "votes": {}
     },
     {
       "id": "place-005",
@@ -434,7 +440,8 @@
         "difficulty": "待核实",
         "horrorLevel": "待核实",
         "usage": "待分配"
-      }
+      },
+      "votes": {}
     },
     {
       "id": "place-006",
@@ -483,7 +490,8 @@
         "difficulty": "待核实",
         "horrorLevel": "待核实",
         "usage": "周六早茶"
-      }
+      },
+      "votes": {}
     },
     {
       "id": "place-007",
@@ -532,7 +540,8 @@
         "difficulty": "中等优先",
         "horrorLevel": "团队确认",
         "usage": "周日上午团队活动"
-      }
+      },
+      "votes": {}
     },
     {
       "id": "place-008",
@@ -581,164 +590,165 @@
         "difficulty": "待核实",
         "horrorLevel": "待核实",
         "usage": "待分配"
-      }
+      },
+      "votes": {}
     }
   ],
   "itinerary": {
+    "day0": [
+      {
+        "time": "20:00",
+        "endTime": "21:00",
+        "category": "抵达",
+        "title": "抵达扬州 · 集合",
+        "subtitle": "六人会合后前往住宿，晚到成员可直接在民宿集合。",
+        "address": "住宿地址待定",
+        "transport": "车站 / 自驾点 → 民宿",
+        "cost": 30,
+        "bookingStatus": "待确认",
+        "note": "按最终车次调整",
+        "sourceId": ""
+      },
+      {
+        "time": "21:00",
+        "endTime": "22:30",
+        "category": "住宿",
+        "title": "入住两晚 · 夜宵碰头",
+        "subtitle": "核对房间分配、周六烧烤安排和次日集合时间。",
+        "address": "待补充真实民宿链接",
+        "transport": "民宿内",
+        "cost": 0,
+        "bookingStatus": "未预订",
+        "note": "住宿尚未下单",
+        "sourceId": ""
+      }
+    ],
     "day1": [
       {
-        "address": "待补充餐厅链接",
-        "bookingStatus": "未预订",
-        "sourceId": "place-006",
         "time": "08:00",
         "endTime": "09:30",
+        "category": "早餐",
         "title": "周六早茶",
         "subtitle": "六人同桌，用一壶茶和几笼点心正式打开周末。",
+        "address": "待补充餐厅链接",
         "transport": "从民宿步行 / 打车",
         "cost": 80,
-        "category": "早餐",
-        "note": "门店和预约方式待选"
+        "bookingStatus": "未预订",
+        "note": "门店和预约方式待选",
+        "sourceId": ""
       },
       {
-        "address": "蜀冈—瘦西湖（详细入口待确认）",
-        "bookingStatus": "待确认",
-        "sourceId": "place-001",
         "time": "10:00",
         "endTime": "13:00",
+        "category": "景点",
         "title": "瘦西湖慢游",
         "subtitle": "把扬州地标放在上午，按体力选择完整或精简路线。",
+        "address": "蜀冈—瘦西湖（详细入口待确认）",
         "transport": "约 10–20 分钟车程",
         "cost": 0,
-        "category": "景点",
-        "note": "票价和开放时间待核实"
+        "bookingStatus": "待确认",
+        "note": "票价和开放时间待核实",
+        "sourceId": ""
       },
       {
-        "address": "东关街历史文化街区",
-        "bookingStatus": "待确认",
-        "sourceId": "place-003",
         "time": "14:30",
         "endTime": "17:00",
+        "category": "老城",
         "title": "个园 · 东关街散步",
         "subtitle": "园林、老城和采购一次串联，为晚上回民宿留足时间。",
+        "address": "东关街历史文化街区",
         "transport": "打车至老城后步行",
         "cost": 0,
-        "category": "老城",
-        "note": "门票与动线待核实"
+        "bookingStatus": "待确认",
+        "note": "门票与动线待核实",
+        "sourceId": ""
       },
       {
-        "address": "住宿地址待定",
-        "bookingStatus": "未预订",
-        "sourceId": "place-005",
         "time": "18:30",
         "endTime": "21:30",
+        "category": "聚餐",
         "title": "民宿烧烤夜",
         "subtitle": "六人一起采购、烧烤和聊天，是本次行程的固定核心。",
+        "address": "住宿地址待定",
         "transport": "回民宿后不再移动",
         "cost": 120,
-        "category": "聚餐",
-        "note": "订房前确认允许烧烤、设备和清洁费"
+        "bookingStatus": "未预订",
+        "note": "订房前确认允许烧烤、设备和清洁费",
+        "sourceId": ""
       }
     ],
     "day2": [
       {
-        "address": "民宿附近待定",
-        "bookingStatus": "未预订",
-        "sourceId": "",
         "time": "08:30",
         "endTime": "09:30",
+        "category": "早餐",
         "title": "周日早餐 · 整理退房",
         "subtitle": "优先选择民宿附近，早餐后完成行李整理。",
+        "address": "民宿附近待定",
         "transport": "步行优先",
         "cost": 40,
-        "category": "早餐",
-        "note": "门店待选"
+        "bookingStatus": "未预订",
+        "note": "门店待选",
+        "sourceId": ""
       },
       {
-        "address": "扬州市区待定",
-        "bookingStatus": "未预订",
-        "sourceId": "place-007",
         "time": "10:30",
         "endTime": "12:30",
+        "category": "活动",
         "title": "6 人密室 / 团队活动",
         "subtitle": "主题以六人可玩、难度适中和交通顺路为优先。",
+        "address": "扬州市区待定",
         "transport": "携带行李打车 / 先寄存",
         "cost": 150,
-        "category": "活动",
-        "note": "主题、恐怖程度和预约规则待补充"
+        "bookingStatus": "未预订",
+        "note": "主题、恐怖程度和预约规则待补充",
+        "sourceId": ""
       },
       {
-        "address": "待补充餐厅链接",
-        "bookingStatus": "未预订",
-        "sourceId": "",
         "time": "13:00",
         "endTime": "14:00",
+        "category": "餐饮",
         "title": "淮扬菜午餐",
         "subtitle": "根据密室位置选择顺路餐厅，控制用餐时间。",
+        "address": "待补充餐厅链接",
         "transport": "短途步行 / 打车",
         "cost": 100,
-        "category": "餐饮",
-        "note": "餐厅待选"
+        "bookingStatus": "未预订",
+        "note": "餐厅待选",
+        "sourceId": ""
       },
       {
-        "address": "运河三湾（入口待核实）",
-        "bookingStatus": "待确认",
-        "sourceId": "place-004",
         "time": "14:30",
         "endTime": "17:00",
+        "category": "博物馆",
         "title": "中国大运河博物馆",
         "subtitle": "用室内展览收束扬州的古今线索，也作为雨天方案。",
+        "address": "运河三湾（入口待核实）",
         "transport": "前往运河三湾",
         "cost": 0,
-        "category": "博物馆",
-        "note": "必须核实预约与闭馆日"
+        "bookingStatus": "待确认",
+        "note": "必须核实预约与闭馆日",
+        "sourceId": ""
       },
       {
-        "address": "扬州东站 / 扬州站待定",
-        "bookingStatus": "待确认",
-        "sourceId": "",
         "time": "17:30",
         "endTime": "19:00",
+        "category": "返程",
         "title": "弹性返程",
         "subtitle": "按六人的车次分批前往车站，预留行李和晚高峰时间。",
+        "address": "扬州东站 / 扬州站待定",
         "transport": "打车 / 自驾返程",
         "cost": 60,
-        "category": "返程",
-        "note": "按最终车次调整"
-      }
-    ],
-    "day0": [
-      {
-        "address": "住宿地址待定",
         "bookingStatus": "待确认",
-        "sourceId": "",
-        "time": "20:00",
-        "endTime": "21:00",
-        "title": "抵达扬州 · 集合",
-        "subtitle": "六人会合后前往住宿，晚到成员可直接在民宿集合。",
-        "transport": "车站 / 自驾点 → 民宿",
-        "cost": 30,
-        "category": "抵达",
-        "note": "按最终车次调整"
-      },
-      {
-        "address": "待补充真实民宿链接",
-        "bookingStatus": "未预订",
-        "sourceId": "place-005",
-        "time": "21:00",
-        "endTime": "22:30",
-        "title": "入住两晚 · 夜宵碰头",
-        "subtitle": "核对房间分配、周六烧烤安排和次日集合时间。",
-        "transport": "民宿内",
-        "cost": 0,
-        "category": "住宿",
-        "note": "住宿尚未下单"
+        "note": "按最终车次调整",
+        "sourceId": ""
       }
     ]
   },
   "settings": {
     "provider": "DeepSeek · deepseek-v4-flash",
     "workbookPath": "outputs/019f7eda-a998-7660-a73d-e43b3af67965/扬州团队旅行攻略.xlsx",
-    "lastExcelSync": "2026-07-20T13:17:54.338Z"
+    "lastExcelSync": "2026-07-21T03:57:44.076Z"
   },
   "tripProfile": {
     "planVersion": "weekend-v2",
@@ -816,5 +826,258 @@
       "deadline": "开放预约后",
       "note": "以官方开放时间和预约规则为准"
     }
-  ]
+  ],
+  "finalPlan": {
+    "version": "excel-home-v1",
+    "title": "6 人扬州周末旅行",
+    "destination": "扬州",
+    "dates": "待团队确认",
+    "schedule": "周五晚抵达 · 周日傍晚返程",
+    "people": 6,
+    "nights": 2,
+    "perPersonBudget": "待团队确认",
+    "summary": "周五晚抵达，周六早茶与园林、晚上民宿烧烤，周日安排早餐、密室和返程。",
+    "stay": {
+      "name": "待选择真实民宿",
+      "address": "待补充民宿详细地址",
+      "capacity": "目标 6 人，待房源确认",
+      "roomsBeds": "至少 3 个独立睡眠空间，床型待确认",
+      "twoNightTotal": "待确认日期和房源后计算",
+      "checkInOut": "周五晚上入住 · 周日退房",
+      "barbecue": "待确认民宿允许周六晚烧烤",
+      "bbqEquipment": "设备、食材和清洁费用待确认",
+      "breakfast": "周六早茶、周日早餐；具体门店待选择",
+      "sourceUrl": ""
+    },
+    "itinerary": [
+      {
+        "day": "周五晚上",
+        "time": "20:00",
+        "endTime": "21:00",
+        "category": "抵达",
+        "title": "抵达扬州 · 集合",
+        "subtitle": "六人会合后前往住宿，晚到成员可直接在民宿集合。",
+        "address": "住宿地址待定",
+        "transport": "车站 / 自驾点 → 民宿",
+        "cost": 30,
+        "bookingStatus": "待确认",
+        "sourceUrl": "",
+        "note": "按最终车次调整",
+        "sourceId": ""
+      },
+      {
+        "day": "周五晚上",
+        "time": "21:00",
+        "endTime": "22:30",
+        "category": "住宿",
+        "title": "入住两晚 · 夜宵碰头",
+        "subtitle": "核对房间分配、周六烧烤安排和次日集合时间。",
+        "address": "待补充真实民宿链接",
+        "transport": "民宿内",
+        "cost": 0,
+        "bookingStatus": "未预订",
+        "sourceUrl": "",
+        "note": "住宿尚未下单",
+        "sourceId": ""
+      },
+      {
+        "day": "周六",
+        "time": "08:00",
+        "endTime": "09:30",
+        "category": "早餐",
+        "title": "周六早茶",
+        "subtitle": "六人同桌，用一壶茶和几笼点心正式打开周末。",
+        "address": "待补充餐厅链接",
+        "transport": "从民宿步行 / 打车",
+        "cost": 80,
+        "bookingStatus": "未预订",
+        "sourceUrl": "",
+        "note": "门店和预约方式待选",
+        "sourceId": ""
+      },
+      {
+        "day": "周六",
+        "time": "10:00",
+        "endTime": "13:00",
+        "category": "景点",
+        "title": "瘦西湖慢游",
+        "subtitle": "把扬州地标放在上午，按体力选择完整或精简路线。",
+        "address": "蜀冈—瘦西湖（详细入口待确认）",
+        "transport": "约 10–20 分钟车程",
+        "cost": 0,
+        "bookingStatus": "待确认",
+        "sourceUrl": "",
+        "note": "票价和开放时间待核实",
+        "sourceId": ""
+      },
+      {
+        "day": "周六",
+        "time": "14:30",
+        "endTime": "17:00",
+        "category": "老城",
+        "title": "个园 · 东关街散步",
+        "subtitle": "园林、老城和采购一次串联，为晚上回民宿留足时间。",
+        "address": "东关街历史文化街区",
+        "transport": "打车至老城后步行",
+        "cost": 0,
+        "bookingStatus": "待确认",
+        "sourceUrl": "",
+        "note": "门票与动线待核实",
+        "sourceId": ""
+      },
+      {
+        "day": "周六",
+        "time": "18:30",
+        "endTime": "21:30",
+        "category": "聚餐",
+        "title": "民宿烧烤夜",
+        "subtitle": "六人一起采购、烧烤和聊天，是本次行程的固定核心。",
+        "address": "住宿地址待定",
+        "transport": "回民宿后不再移动",
+        "cost": 120,
+        "bookingStatus": "未预订",
+        "sourceUrl": "",
+        "note": "订房前确认允许烧烤、设备和清洁费",
+        "sourceId": ""
+      },
+      {
+        "day": "周日",
+        "time": "08:30",
+        "endTime": "09:30",
+        "category": "早餐",
+        "title": "周日早餐 · 整理退房",
+        "subtitle": "优先选择民宿附近，早餐后完成行李整理。",
+        "address": "民宿附近待定",
+        "transport": "步行优先",
+        "cost": 40,
+        "bookingStatus": "未预订",
+        "sourceUrl": "",
+        "note": "门店待选",
+        "sourceId": ""
+      },
+      {
+        "day": "周日",
+        "time": "10:30",
+        "endTime": "12:30",
+        "category": "活动",
+        "title": "6 人密室 / 团队活动",
+        "subtitle": "主题以六人可玩、难度适中和交通顺路为优先。",
+        "address": "扬州市区待定",
+        "transport": "携带行李打车 / 先寄存",
+        "cost": 150,
+        "bookingStatus": "未预订",
+        "sourceUrl": "",
+        "note": "主题、恐怖程度和预约规则待补充",
+        "sourceId": ""
+      },
+      {
+        "day": "周日",
+        "time": "13:00",
+        "endTime": "14:00",
+        "category": "餐饮",
+        "title": "淮扬菜午餐",
+        "subtitle": "根据密室位置选择顺路餐厅，控制用餐时间。",
+        "address": "待补充餐厅链接",
+        "transport": "短途步行 / 打车",
+        "cost": 100,
+        "bookingStatus": "未预订",
+        "sourceUrl": "",
+        "note": "餐厅待选",
+        "sourceId": ""
+      },
+      {
+        "day": "周日",
+        "time": "14:30",
+        "endTime": "17:00",
+        "category": "博物馆",
+        "title": "中国大运河博物馆",
+        "subtitle": "用室内展览收束扬州的古今线索，也作为雨天方案。",
+        "address": "运河三湾（入口待核实）",
+        "transport": "前往运河三湾",
+        "cost": 0,
+        "bookingStatus": "待确认",
+        "sourceUrl": "",
+        "note": "必须核实预约与闭馆日",
+        "sourceId": ""
+      },
+      {
+        "day": "周日",
+        "time": "17:30",
+        "endTime": "19:00",
+        "category": "返程",
+        "title": "弹性返程",
+        "subtitle": "按六人的车次分批前往车站，预留行李和晚高峰时间。",
+        "address": "扬州东站 / 扬州站待定",
+        "transport": "打车 / 自驾返程",
+        "cost": 60,
+        "bookingStatus": "待确认",
+        "sourceUrl": "",
+        "note": "按最终车次调整",
+        "sourceId": ""
+      }
+    ],
+    "reservations": [
+      {
+        "id": "reserve-stay",
+        "item": "6 人住宿（周五、周六两晚）",
+        "type": "住宿",
+        "targetTime": "周五入住，周日退房",
+        "status": "待补充真实链接",
+        "owner": "待认领",
+        "deadline": "日期确认后立即",
+        "note": "整租优先；核对 3 个睡眠空间、两晚总价与取消政策"
+      },
+      {
+        "id": "reserve-bbq",
+        "item": "周六晚民宿烧烤",
+        "type": "餐饮",
+        "targetTime": "周六 18:30",
+        "status": "待确认",
+        "owner": "待认领",
+        "deadline": "订房前",
+        "note": "确认能否烧烤、设备、食材和清洁费用"
+      },
+      {
+        "id": "reserve-breakfast-1",
+        "item": "周六早茶",
+        "type": "早餐",
+        "targetTime": "周六 08:00",
+        "status": "待补充餐厅链接",
+        "owner": "待认领",
+        "deadline": "出发前 7 天",
+        "note": "6 人同桌；核对是否可预约及排队时间"
+      },
+      {
+        "id": "reserve-breakfast-2",
+        "item": "周日早餐",
+        "type": "早餐",
+        "targetTime": "周日 08:30",
+        "status": "待补充餐厅链接",
+        "owner": "待认领",
+        "deadline": "出发前 7 天",
+        "note": "优先选择民宿附近，避免影响退房"
+      },
+      {
+        "id": "reserve-escape",
+        "item": "6 人密室 / 团队活动",
+        "type": "活动",
+        "targetTime": "周日 10:30",
+        "status": "待补充真实链接",
+        "owner": "待认领",
+        "deadline": "出发前 7 天",
+        "note": "核对主题、难度、恐怖程度、时长与取消政策"
+      },
+      {
+        "id": "reserve-attraction",
+        "item": "景点 / 博物馆预约",
+        "type": "门票",
+        "targetTime": "周六至周日",
+        "status": "待确认",
+        "owner": "待认领",
+        "deadline": "开放预约后",
+        "note": "以官方开放时间和预约规则为准"
+      }
+    ],
+    "updatedAt": "2026-07-21T03:25:24.295Z"
+  }
 }

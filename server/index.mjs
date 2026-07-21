@@ -96,6 +96,137 @@ const defaultSundayPlan = [
   { time: "17:30", endTime: "19:00", title: "弹性返程", subtitle: "按六人的车次分批前往车站，预留行李和晚高峰时间。", transport: "打车 / 自驾返程", cost: 60, category: "返程", note: "按最终车次调整", address: "扬州东站 / 扬州站待定", bookingStatus: "待确认", sourceId: "" },
 ];
 
+function itineraryWithDay(itinerary) {
+  return [
+    ...(itinerary.day0 || []).map((item) => ({ day: "周五晚上", sourceUrl: "", ...item })),
+    ...(itinerary.day1 || []).map((item) => ({ day: "周六", sourceUrl: "", ...item })),
+    ...(itinerary.day2 || []).map((item) => ({ day: "周日", sourceUrl: "", ...item })),
+  ];
+}
+
+function splitFinalItinerary(items) {
+  const result = { day0: [], day1: [], day2: [] };
+  for (const item of Array.isArray(items) ? items : []) {
+    const key = String(item.day || "").includes("周五") ? "day0" : String(item.day || "").includes("周六") ? "day1" : "day2";
+    const itineraryItem = { ...item };
+    delete itineraryItem.day;
+    delete itineraryItem.sourceUrl;
+    result[key].push(itineraryItem);
+  }
+  return result;
+}
+
+function finalValueStatus(value) {
+  const text = String(value ?? "").trim();
+  if (!text || /待|未选择|未确定|未知|尚未|占位|空位|暂无/.test(text)) return "待补充";
+  return "已确定";
+}
+
+function limitedText(value, fallback = "", maximum = 500) {
+  const text = String(value ?? "").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "").trim();
+  return (text || String(fallback ?? "").trim()).slice(0, maximum);
+}
+
+function submittedText(object, key, fallback = "", maximum = 500, allowBlank = true) {
+  if (!Object.prototype.hasOwnProperty.call(object, key)) return limitedText(fallback, "", maximum);
+  const text = String(object[key] ?? "").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "").trim().slice(0, maximum);
+  return allowBlank ? text : (text || limitedText(fallback, "", maximum));
+}
+
+function safeWebUrl(value, fallback = "") {
+  const text = limitedText(value, fallback, 2_000);
+  if (!text) return "";
+  try {
+    const parsed = new URL(text);
+    return ["http:", "https:"].includes(parsed.protocol) ? parsed.toString() : "";
+  } catch {
+    return "";
+  }
+}
+
+function boundedInteger(value, fallback, minimum, maximum) {
+  const number = Math.round(Number(value));
+  return Number.isFinite(number) ? Math.min(maximum, Math.max(minimum, number)) : fallback;
+}
+
+function boundedCost(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.min(1_000_000, Math.max(0, number)) : fallback;
+}
+
+function normalizePlanDay(value) {
+  const day = limitedText(value, "周六", 20);
+  if (day.includes("周五") || day.includes("星期五")) return "周五晚上";
+  if (day.includes("周日") || day.includes("星期日") || day.includes("周天")) return "周日";
+  return "周六";
+}
+
+function sanitizeFinalPlan(input, current) {
+  const source = input && typeof input === "object" ? input : {};
+  const previous = current && typeof current === "object" ? current : {};
+  const stay = source.stay && typeof source.stay === "object" ? source.stay : {};
+  const previousStay = previous.stay && typeof previous.stay === "object" ? previous.stay : {};
+  const itinerary = Array.isArray(source.itinerary) ? source.itinerary.slice(0, 100) : (previous.itinerary || []);
+  const reservations = Array.isArray(source.reservations) ? source.reservations.slice(0, 100) : (previous.reservations || []);
+
+  return {
+    ...previous,
+    version: "excel-home-v1",
+    title: submittedText(source, "title", previous.title || "6 人扬州周末旅行", 120, false),
+    destination: submittedText(source, "destination", previous.destination || "扬州", 80, false),
+    dates: submittedText(source, "dates", previous.dates || "待团队确认", 120),
+    schedule: submittedText(source, "schedule", previous.schedule || "周五晚抵达 · 周日傍晚返程", 160),
+    people: boundedInteger(source.people, boundedInteger(previous.people, 6, 1, 50), 1, 50),
+    nights: boundedInteger(source.nights, boundedInteger(previous.nights, 2, 1, 30), 1, 30),
+    perPersonBudget: submittedText(source, "perPersonBudget", previous.perPersonBudget || "待团队确认", 80),
+    summary: submittedText(source, "summary", previous.summary || "", 1_000),
+    stay: {
+      name: submittedText(stay, "name", previousStay.name || "待选择真实民宿", 160),
+      address: submittedText(stay, "address", previousStay.address || "待补充民宿详细地址", 300),
+      capacity: submittedText(stay, "capacity", previousStay.capacity || "目标 6 人", 160),
+      roomsBeds: submittedText(stay, "roomsBeds", previousStay.roomsBeds || "待确认", 240),
+      twoNightTotal: submittedText(stay, "twoNightTotal", previousStay.twoNightTotal || "待确认", 120),
+      checkInOut: submittedText(stay, "checkInOut", previousStay.checkInOut || "待确认", 200),
+      barbecue: submittedText(stay, "barbecue", previousStay.barbecue || "待确认", 300),
+      bbqEquipment: submittedText(stay, "bbqEquipment", previousStay.bbqEquipment || "待确认", 400),
+      breakfast: submittedText(stay, "breakfast", previousStay.breakfast || "待确认", 400),
+      sourceUrl: Object.prototype.hasOwnProperty.call(stay, "sourceUrl") ? safeWebUrl(stay.sourceUrl) : safeWebUrl(previousStay.sourceUrl || ""),
+    },
+    itinerary: itinerary.map((raw, index) => {
+      const item = raw && typeof raw === "object" ? raw : {};
+      return {
+        day: normalizePlanDay(item.day),
+        time: submittedText(item, "time", "", 30),
+        endTime: submittedText(item, "endTime", "", 30),
+        category: submittedText(item, "category", "安排", 60, false),
+        title: submittedText(item, "title", `新增安排 ${index + 1}`, 160, false),
+        subtitle: submittedText(item, "subtitle", "", 800),
+        address: submittedText(item, "address", "待补充", 300),
+        transport: submittedText(item, "transport", "待补充", 300),
+        cost: boundedCost(item.cost),
+        bookingStatus: submittedText(item, "bookingStatus", "待确认", 80),
+        sourceUrl: safeWebUrl(item.sourceUrl),
+        note: submittedText(item, "note", "", 500),
+        sourceId: submittedText(item, "sourceId", "", 120),
+      };
+    }),
+    reservations: reservations.map((raw) => {
+      const item = raw && typeof raw === "object" ? raw : {};
+      return {
+        id: limitedText(item.id, `reserve-${randomUUID()}`, 120),
+        item: submittedText(item, "item", "新增待办", 200, false),
+        type: submittedText(item, "type", "待分类", 60),
+        targetTime: submittedText(item, "targetTime", "待确认", 120),
+        status: submittedText(item, "status", "待确认", 80),
+        owner: submittedText(item, "owner", "待认领", 80),
+        deadline: submittedText(item, "deadline", "待确认", 120),
+        note: submittedText(item, "note", "", 500),
+      };
+    }),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 function normalizeState(raw) {
   const state = raw && typeof raw === "object" ? raw : {};
   const hasWeekendPlan = state.tripProfile?.planVersion === defaultTripProfile.planVersion;
@@ -129,6 +260,7 @@ function normalizeState(raw) {
     tags: Array.isArray(item.tags) ? item.tags : [],
     pros: Array.isArray(item.pros) ? item.pros : [],
     cons: Array.isArray(item.cons) ? item.cons : [],
+    votes: item.votes && typeof item.votes === "object" && !Array.isArray(item.votes) ? item.votes : {},
     details: { ...defaultDetails, ...(seedDetails[item.id] || {}), ...(item.details || {}), address: item.details?.address || seedDetails[item.id]?.address || item.area || "待核实" },
   })) : [];
   state.itinerary = state.itinerary || {};
@@ -142,6 +274,51 @@ function normalizeState(raw) {
     state.itinerary[day] = (Array.isArray(state.itinerary[day]) ? state.itinerary[day] : []).map((item) => ({ address: "待确认", bookingStatus: "待确认", sourceId: "", ...item }));
   }
   state.reservations = Array.isArray(state.reservations) && state.reservations.length ? state.reservations : defaultReservations;
+  const defaultStay = state.places.find((item) => item.id === "place-005") || state.places.find((item) => item.category === "住宿") || {};
+  const defaultFinalPlan = {
+    version: "excel-home-v1",
+    title: "6 人扬州周末旅行",
+    destination: state.project.destination,
+    dates: state.tripProfile.dates,
+    schedule: state.tripProfile.schedule,
+    people: state.tripProfile.groupSize,
+    nights: state.tripProfile.nights,
+    perPersonBudget: "待团队确认",
+    summary: "周五晚抵达，周六早茶与园林、晚上民宿烧烤，周日安排早餐、密室和返程。",
+    stay: {
+      name: "待选择真实民宿",
+      address: "待补充民宿详细地址",
+      capacity: "目标 6 人，待房源确认",
+      roomsBeds: "至少 3 个独立睡眠空间，床型待确认",
+      twoNightTotal: "待确认日期和房源后计算",
+      checkInOut: "周五晚上入住 · 周日退房",
+      barbecue: "待确认民宿允许周六晚烧烤",
+      bbqEquipment: "设备、食材和清洁费用待确认",
+      breakfast: "周六早茶、周日早餐；具体门店待选择",
+      sourceUrl: defaultStay.sourceUrl || "",
+    },
+    itinerary: itineraryWithDay(state.itinerary).map((item) => ({ ...item, sourceUrl: state.places.find((place) => place.id === item.sourceId)?.sourceUrl || item.sourceUrl || "" })),
+    reservations: state.reservations.map((item) => ({ ...item })),
+    updatedAt: new Date().toISOString(),
+  };
+  state.finalPlan = {
+    ...defaultFinalPlan,
+    ...(state.finalPlan || {}),
+    stay: { ...defaultFinalPlan.stay, ...(state.finalPlan?.stay || {}) },
+    itinerary: Array.isArray(state.finalPlan?.itinerary) && state.finalPlan.itinerary.length ? state.finalPlan.itinerary : defaultFinalPlan.itinerary,
+    reservations: Array.isArray(state.finalPlan?.reservations) && state.finalPlan.reservations.length ? state.finalPlan.reservations : defaultFinalPlan.reservations,
+  };
+  if (state.finalPlan.version === "excel-home-v1") {
+    state.itinerary = splitFinalItinerary(state.finalPlan.itinerary);
+    state.reservations = state.finalPlan.reservations.map((item) => ({ ...item }));
+    state.project.name = state.finalPlan.title;
+    state.project.destination = state.finalPlan.destination;
+    state.project.people = Number(state.finalPlan.people) || state.project.people;
+    state.tripProfile.dates = state.finalPlan.dates;
+    state.tripProfile.schedule = state.finalPlan.schedule;
+    state.tripProfile.groupSize = Number(state.finalPlan.people) || state.tripProfile.groupSize;
+    state.tripProfile.nights = Number(state.finalPlan.nights) || state.tripProfile.nights;
+  }
   state.settings = { provider: "演示分析", workbookPath: "", lastExcelSync: "", ...(state.settings || {}) };
   return state;
 }
@@ -501,10 +678,10 @@ function enqueueLink(id) {
 const headers = {
   links: ["ID", "提交时间", "提交人", "原始链接", "页面标题", "自动分类", "读取结果", "整理结果", "处理状态", "已提取信息", "缺失信息", "AI摘要", "分析模型", "错误原因", "备注"],
   report: ["ID", "提交人", "页面标题", "分类", "读取结果", "整理结果", "结果说明", "已提取信息", "缺失信息", "错误原因", "原始链接", "更新时间"],
-  stays: ["ID", "名称", "区域", "详细地址", "每晚价格", "两晚总价", "适合人数", "房间", "床位", "卫浴", "环境特点", "是否整租", "厨房", "能否烧烤", "烧烤设备/费用", "早餐", "停车", "交通", "入住时间", "退房时间", "预订状态", "优点", "缺点", "推荐分", "是否入选", "原始链接", "数据状态"],
-  activities: ["ID", "名称", "活动类型", "区域", "详细地址", "价格", "适合人数", "时长", "难度", "恐怖程度", "营业时间", "预约要求", "预订状态", "优点", "缺点", "推荐分", "是否入选", "原始链接", "数据状态"],
-  food: ["ID", "名称", "类型", "适合安排", "区域", "详细地址", "人均价格", "营业时间", "预约要求", "预订状态", "推荐菜/特点", "优点", "缺点", "推荐分", "是否入选", "原始链接", "数据状态"],
-  guides: ["ID", "标题", "涉及区域", "AI摘要", "避坑信息", "交通建议", "已提取信息", "缺失信息", "是否入选", "原始链接", "数据状态"],
+  stays: ["ID", "名称", "区域", "详细地址", "每晚价格", "两晚总价", "适合人数", "房间", "床位", "卫浴", "环境特点", "是否整租", "厨房", "能否烧烤", "烧烤设备/费用", "早餐", "停车", "交通", "入住时间", "退房时间", "预订状态", "优点", "缺点", "推荐分", "想去票", "可以票", "不考虑票", "投票详情", "是否入选", "原始链接", "数据状态"],
+  activities: ["ID", "名称", "活动类型", "区域", "详细地址", "价格", "适合人数", "时长", "难度", "恐怖程度", "营业时间", "预约要求", "预订状态", "优点", "缺点", "推荐分", "想去票", "可以票", "不考虑票", "投票详情", "是否入选", "原始链接", "数据状态"],
+  food: ["ID", "名称", "类型", "适合安排", "区域", "详细地址", "人均价格", "营业时间", "预约要求", "预订状态", "推荐菜/特点", "优点", "缺点", "推荐分", "想去票", "可以票", "不考虑票", "投票详情", "是否入选", "原始链接", "数据状态"],
+  guides: ["ID", "标题", "涉及区域", "AI摘要", "避坑信息", "交通建议", "已提取信息", "缺失信息", "想去票", "可以票", "不考虑票", "投票详情", "是否入选", "原始链接", "数据状态"],
   itinerary: ["日期", "开始时间", "结束时间", "类型", "地点", "活动安排", "详细地址", "交通", "预计费用/人", "预订状态", "注意事项", "来源ID", "来源链接"],
   reservations: ["ID", "待办事项", "类型", "计划时间", "当前状态", "负责人", "完成期限", "核对说明"],
   settings: ["设置项", "当前内容", "说明"],
@@ -514,10 +691,10 @@ const headers = {
 const sheetDescriptions = {
   "链接汇总": "每一条团队链接的完整台账；读取失败也会保留，不会静默丢失。",
   "处理报告": "快速查看哪些链接已成功整理、哪些未整理，以及缺失了什么。",
-  "住宿候选": "重点比较 6 人住两晚、环境、烧烤、房间床位与预订条件。",
-  "活动候选": "密室、景点和其他团队活动；动态信息需在下单前复核。",
-  "餐饮候选": "周六早茶、周日早餐、正餐与烧烤相关候选。",
-  "攻略文章": "攻略文章中已经提取的事实、建议与仍待核实的信息。",
+  "住宿候选": "查看团队投票并比较 6 人住两晚、烧烤与房型；黄色“是否入选”可直接修改。",
+  "活动候选": "查看团队投票、密室和景点条件；黄色“是否入选”可直接修改。",
+  "餐饮候选": "查看团队投票和餐饮候选；黄色“是否入选”可直接修改。",
+  "攻略文章": "查看攻略摘要、团队投票和缺失信息；黄色“是否入选”可直接修改。",
   "两日行程": "包含周五晚抵达，以及周六、周日两天的初版安排。",
   "预订清单": "所有需要团队确认或下单的事项；网站不会代替你付款。",
   "项目设置": "这次扬州周末旅行的需求约束与运行设置。",
@@ -531,6 +708,17 @@ function columnWidth(header) {
   if (/标题|名称|地点|待办事项|活动安排/.test(header)) return 24;
   if (/时间|日期|状态|结果|分类|类型|区域|价格|费用|人数|分|房间|床位|卫浴|厨房|早餐|停车|负责人|期限/.test(header)) return 16;
   return 18;
+}
+
+function placeVoteColumns(place) {
+  const votes = place.votes && typeof place.votes === "object" ? place.votes : {};
+  const entries = Object.entries(votes);
+  return [
+    entries.filter(([, choice]) => choice === "想去").length,
+    entries.filter(([, choice]) => choice === "可以").length,
+    entries.filter(([, choice]) => choice === "不考虑").length,
+    entries.map(([name, choice]) => `${name}：${choice}`).join("；"),
+  ];
 }
 
 function ensureSheet(workbook, name, sheetHeaders) {
@@ -596,12 +784,183 @@ function replaceRows(sheet, rows, columnCount) {
   sheet.autoFilter = { from: { row: 3, column: 1 }, to: { row: Math.max(4, 3 + rows.length), column: columnCount } };
 }
 
+function styleCandidateDecisions(sheet, sheetHeaders, rowCount) {
+  const decisionColumn = sheetHeaders.indexOf("是否入选") + 1;
+  if (!decisionColumn) return;
+  for (let rowNumber = 4; rowNumber < 4 + Math.max(rowCount, 1); rowNumber += 1) {
+    const cell = sheet.getCell(rowNumber, decisionColumn);
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF4D6" } };
+    cell.font = { name: "PingFang SC", color: { argb: "8A542C" }, size: 9, bold: true };
+    cell.alignment = { vertical: "middle", horizontal: "center" };
+    cell.dataValidation = { type: "list", allowBlank: false, formulae: ['"是,否"'] };
+  }
+}
+
+function homeStatusStyle(status) {
+  if (status === "已确定" || status === "已完成" || status === "已预订") {
+    return { fill: "DCECE4", font: "23634C" };
+  }
+  return { fill: "F5DFCD", font: "9B4D28" };
+}
+
+function writeFinalPlanSheet(workbook, state) {
+  const sheet = workbook.addWorksheet("行程首页", {
+    views: [{ showGridLines: false, state: "frozen", ySplit: 3 }],
+    properties: { tabColor: { argb: "D9703E" } },
+  });
+  const fp = state.finalPlan;
+  const stay = fp.stay;
+  const widths = [18, 18, 18, 14, 20, 25, 24, 20, 14, 16, 26, 36];
+  widths.forEach((width, index) => { sheet.getColumn(index + 1).width = width; });
+
+  sheet.mergeCells("A1:L1");
+  sheet.getCell("A1").value = "扬州旅行 · 最终方案首页";
+  sheet.getCell("A1").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "173D3B" } };
+  sheet.getCell("A1").font = { name: "Songti SC", color: { argb: "FFF8EE" }, size: 22, bold: true };
+  sheet.getCell("A1").alignment = { vertical: "middle", horizontal: "center" };
+  sheet.getRow(1).height = 48;
+
+  sheet.mergeCells("A2:L2");
+  sheet.getCell("A2").value = "网站只读取这一页作为最终攻略；后面的工作表都是候选资料和处理记录。";
+  sheet.getCell("A2").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "DCEBE6" } };
+  sheet.getCell("A2").font = { name: "PingFang SC", color: { argb: "173D3B" }, size: 11, bold: true };
+  sheet.getCell("A2").alignment = { vertical: "middle", horizontal: "center" };
+  sheet.getRow(2).height = 34;
+
+  const basics = [
+    ["方案标题", fp.title, "显示为网站主标题"],
+    ["目的地", fp.destination, "城市或主要目的地"],
+    ["出行日期", fp.dates, "确定日期后直接在黄色单元格修改"],
+    ["行程结构", fp.schedule, "例如：周五晚抵达 · 周日返程"],
+    ["同行人数", fp.people, "用于住宿、餐饮和活动人数判断"],
+    ["住宿晚数", fp.nights, "本次为周五、周六两晚"],
+    ["人均预算", fp.perPersonBudget, "可填写数字或预算区间"],
+    ["方案说明", fp.summary, "网站首页的行程摘要"],
+  ];
+  const stayFields = [
+    ["民宿名称", stay.name, "确定住宿后填写真实名称"],
+    ["详细地址", stay.address, "尽量填写完整门牌或平台可见地址"],
+    ["适合人数", stay.capacity, "确认房源允许 6 人入住"],
+    ["房间 / 床位", stay.roomsBeds, "写清房间数、床型和床数"],
+    ["两晚总价", stay.twoNightTotal, "填写含清洁费、服务费后的总价"],
+    ["入住 / 退房", stay.checkInOut, "填写具体时间和延迟入住限制"],
+    ["能否烧烤", stay.barbecue, "周六晚核心条件"],
+    ["烧烤设备 / 费用", stay.bbqEquipment, "烤炉、炭火、食材、清洁费与限制"],
+    ["早餐安排", stay.breakfast, "周六早茶和周日早餐的具体门店"],
+    ["民宿原始链接", stay.sourceUrl, "保留预订平台或介绍页链接"],
+  ];
+  const completionValues = [...basics, ...stayFields].map((item) => item[1]);
+  const confirmed = completionValues.filter((item) => finalValueStatus(item) === "已确定").length;
+  sheet.mergeCells("A3:L3");
+  sheet.getCell("A3").value = `黄色单元格可直接修改；保存 Excel 后约 4 秒同步网站。当前已确定 ${confirmed}/${completionValues.length} 项，待补充 ${completionValues.length - confirmed} 项。`;
+  sheet.getCell("A3").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF4D6" } };
+  sheet.getCell("A3").font = { name: "PingFang SC", color: { argb: "8A542C" }, size: 10 };
+  sheet.getCell("A3").alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+  sheet.getRow(3).height = 34;
+
+  function section(row, title, description) {
+    sheet.mergeCells(row, 1, row, 12);
+    const cell = sheet.getCell(row, 1);
+    cell.value = `${title}  ·  ${description}`;
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "0F6963" } };
+    cell.font = { name: "PingFang SC", color: { argb: "FFFFFF" }, size: 11, bold: true };
+    cell.alignment = { vertical: "middle", horizontal: "left" };
+    sheet.getRow(row).height = 30;
+  }
+
+  function fieldRow(row, label, fieldValue, note) {
+    sheet.getCell(row, 1).value = label;
+    sheet.mergeCells(row, 2, row, 3);
+    sheet.getCell(row, 2).value = fieldValue === "" ? null : fieldValue;
+    const status = finalValueStatus(fieldValue);
+    sheet.getCell(row, 4).value = status;
+    sheet.mergeCells(row, 5, row, 12);
+    sheet.getCell(row, 5).value = note;
+    sheet.getCell(row, 1).font = { name: "PingFang SC", color: { argb: "496462" }, size: 10, bold: true };
+    sheet.getCell(row, 2).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF4D6" } };
+    sheet.getCell(row, 2).font = { name: "PingFang SC", color: { argb: "1B5E7A" }, size: 10 };
+    sheet.getCell(row, 4).fill = { type: "pattern", pattern: "solid", fgColor: { argb: homeStatusStyle(status).fill } };
+    sheet.getCell(row, 4).font = { name: "PingFang SC", color: { argb: homeStatusStyle(status).font }, size: 9, bold: true };
+    sheet.getCell(row, 4).alignment = { vertical: "middle", horizontal: "center" };
+    sheet.getCell(row, 5).font = { name: "PingFang SC", color: { argb: "758785" }, size: 9 };
+    for (let column = 1; column <= 12; column += 1) {
+      sheet.getCell(row, column).alignment = { ...sheet.getCell(row, column).alignment, vertical: "middle", wrapText: true };
+      sheet.getCell(row, column).border = { bottom: { style: "hair", color: { argb: "D7DED8" } } };
+    }
+    sheet.getRow(row).height = label === "方案说明" || label === "烧烤设备 / 费用" || label === "早餐安排" ? 46 : 34;
+  }
+
+  section(5, "一、基础信息", "网站顶部与旅行概览");
+  basics.forEach((item, index) => fieldRow(6 + index, ...item));
+  section(15, "二、住宿确认", "民宿未确定前保持橙色“待补充”");
+  stayFields.forEach((item, index) => fieldRow(16 + index, ...item));
+
+  section(27, "三、周末行程", "直接增删或修改下面的行程，网站按这里显示");
+  const itineraryHeaders = ["日期", "开始时间", "结束时间", "类型", "安排", "详细说明", "地址", "交通", "费用/人", "预订状态", "来源链接", "备注"];
+  sheet.getRow(28).values = itineraryHeaders;
+  itineraryHeaders.forEach((header, index) => {
+    const cell = sheet.getCell(28, index + 1);
+    cell.value = header;
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "173D3B" } };
+    cell.font = { name: "PingFang SC", color: { argb: "FFFFFF" }, size: 9, bold: true };
+    cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+  });
+  sheet.getRow(28).height = 32;
+  fp.itinerary.forEach((item, index) => {
+    const rowNumber = 29 + index;
+    const row = sheet.getRow(rowNumber);
+    row.values = [item.day, item.time, item.endTime, item.category, item.title, item.subtitle, item.address, item.transport, item.cost, item.bookingStatus, item.sourceUrl || null, item.note || null];
+    row.height = 42;
+    for (let column = 1; column <= 12; column += 1) {
+      const cell = row.getCell(column);
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: index % 2 ? "FFF9EF" : "FFF4D6" } };
+      cell.font = { name: "PingFang SC", color: { argb: column === 11 ? "1B5E7A" : "173D3B" }, size: 9 };
+      cell.alignment = { vertical: "middle", wrapText: true };
+      cell.border = { bottom: { style: "hair", color: { argb: "D7DED8" } } };
+    }
+    row.getCell(9).numFmt = "#,##0";
+    row.getCell(10).dataValidation = { type: "list", allowBlank: true, formulae: ['"待确认,未预订,已预订,已完成,无需预订"'] };
+  });
+
+  const reservationSectionRow = 30 + fp.itinerary.length;
+  section(reservationSectionRow, "四、预订清单", "负责人和状态也会同步到网站");
+  const reservationHeaderRow = reservationSectionRow + 1;
+  const reservationHeaders = ["ID", "待办事项", "类型", "计划时间", "当前状态", "负责人", "完成期限", "核对说明"];
+  sheet.getRow(reservationHeaderRow).values = reservationHeaders;
+  reservationHeaders.forEach((header, index) => {
+    const cell = sheet.getCell(reservationHeaderRow, index + 1);
+    cell.value = header;
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "173D3B" } };
+    cell.font = { name: "PingFang SC", color: { argb: "FFFFFF" }, size: 9, bold: true };
+    cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+  });
+  sheet.getRow(reservationHeaderRow).height = 32;
+  fp.reservations.forEach((item, index) => {
+    const row = sheet.getRow(reservationHeaderRow + 1 + index);
+    row.values = [item.id, item.item, item.type, item.targetTime, item.status, item.owner, item.deadline, item.note || null];
+    row.height = 38;
+    for (let column = 1; column <= 8; column += 1) {
+      const cell = row.getCell(column);
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: index % 2 ? "FFF9EF" : "FFF4D6" } };
+      cell.font = { name: "PingFang SC", color: { argb: "173D3B" }, size: 9 };
+      cell.alignment = { vertical: "middle", wrapText: true };
+      cell.border = { bottom: { style: "hair", color: { argb: "D7DED8" } } };
+    }
+    row.getCell(5).dataValidation = { type: "list", allowBlank: true, formulae: ['"待补充真实链接,待补充餐厅链接,待确认,未预订,已预订,已完成"'] };
+  });
+
+  sheet.pageSetup = { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, printArea: `A1:L${reservationHeaderRow + fp.reservations.length}` };
+  return sheet;
+}
+
 async function syncToExcel(state) {
   state = normalizeState(state);
   writeInProgress = true;
   try {
     const workbook = new ExcelJS.Workbook();
-    try { await workbook.xlsx.readFile(workbookPath); } catch { /* Initial workbook may not exist yet. */ }
+    workbook.creator = "下扬州 · 团队旅行共创台";
+    workbook.created = new Date();
+    writeFinalPlanSheet(workbook, state);
     const linkSheet = ensureSheet(workbook, "链接汇总", headers.links);
     replaceRows(linkSheet, state.links.map((item) => [item.id, item.createdAt, item.submitter, item.url, item.title, item.category, item.readStatus, item.organizedStatus, item.status, item.factsFound.join("；"), item.missingFields.join("；"), item.summary, item.model, item.error || "", item.note]), headers.links.length);
 
@@ -612,23 +971,27 @@ async function syncToExcel(state) {
     const staySheet = ensureSheet(workbook, "住宿候选", headers.stays);
     replaceRows(staySheet, stays.map((item) => {
       const d = item.details;
-      return [item.id, item.name, item.area, d.address, item.price, d.twoNightTotal, d.capacity, d.rooms, d.beds, d.bathrooms, d.environment, d.entireRental, d.kitchen, d.barbecue, d.bbqEquipment, d.breakfast, d.parking, d.transport, d.checkIn, d.checkOut, d.bookingStatus, item.pros.join("；"), item.cons.join("；"), item.score, item.selected ? "是" : "否", item.sourceUrl, item.dataStatus];
+      return [item.id, item.name, item.area, d.address, item.price, d.twoNightTotal, d.capacity, d.rooms, d.beds, d.bathrooms, d.environment, d.entireRental, d.kitchen, d.barbecue, d.bbqEquipment, d.breakfast, d.parking, d.transport, d.checkIn, d.checkOut, d.bookingStatus, item.pros.join("；"), item.cons.join("；"), item.score, ...placeVoteColumns(item), item.selected ? "是" : "否", item.sourceUrl, item.dataStatus];
     }), headers.stays.length);
+    styleCandidateDecisions(staySheet, headers.stays, stays.length);
 
     const activities = state.places.filter((item) => ["活动", "景点"].includes(item.category));
     const activitySheet = ensureSheet(workbook, "活动候选", headers.activities);
-    replaceRows(activitySheet, activities.map((item) => [item.id, item.name, item.category, item.area, item.details.address, item.price, item.details.capacity, item.duration, item.details.difficulty, item.details.horrorLevel, item.details.openingHours, item.details.reservation, item.details.bookingStatus, item.pros.join("；"), item.cons.join("；"), item.score, item.selected ? "是" : "否", item.sourceUrl, item.dataStatus]), headers.activities.length);
+    replaceRows(activitySheet, activities.map((item) => [item.id, item.name, item.category, item.area, item.details.address, item.price, item.details.capacity, item.duration, item.details.difficulty, item.details.horrorLevel, item.details.openingHours, item.details.reservation, item.details.bookingStatus, item.pros.join("；"), item.cons.join("；"), item.score, ...placeVoteColumns(item), item.selected ? "是" : "否", item.sourceUrl, item.dataStatus]), headers.activities.length);
+    styleCandidateDecisions(activitySheet, headers.activities, activities.length);
 
     const food = state.places.filter((item) => item.category === "餐饮");
     const foodSheet = ensureSheet(workbook, "餐饮候选", headers.food);
-    replaceRows(foodSheet, food.map((item) => [item.id, item.name, "餐饮", item.details.usage, item.area, item.details.address, item.price, item.details.openingHours, item.details.reservation, item.details.bookingStatus, item.tags.join("；"), item.pros.join("；"), item.cons.join("；"), item.score, item.selected ? "是" : "否", item.sourceUrl, item.dataStatus]), headers.food.length);
+    replaceRows(foodSheet, food.map((item) => [item.id, item.name, "餐饮", item.details.usage, item.area, item.details.address, item.price, item.details.openingHours, item.details.reservation, item.details.bookingStatus, item.tags.join("；"), item.pros.join("；"), item.cons.join("；"), item.score, ...placeVoteColumns(item), item.selected ? "是" : "否", item.sourceUrl, item.dataStatus]), headers.food.length);
+    styleCandidateDecisions(foodSheet, headers.food, food.length);
 
     const guides = state.places.filter((item) => item.category === "攻略");
     const guideSheet = ensureSheet(workbook, "攻略文章", headers.guides);
     replaceRows(guideSheet, guides.map((item) => {
       const link = state.links.find((candidate) => candidate.id === item.sourceId);
-      return [item.id, item.name, item.area, link?.summary || item.pros.join("；"), item.cons.join("；"), item.details.transport, link?.factsFound?.join("；") || "", link?.missingFields?.join("；") || "", item.selected ? "是" : "否", item.sourceUrl, item.dataStatus];
+      return [item.id, item.name, item.area, link?.summary || item.pros.join("；"), item.cons.join("；"), item.details.transport, link?.factsFound?.join("；") || "", link?.missingFields?.join("；") || "", ...placeVoteColumns(item), item.selected ? "是" : "否", item.sourceUrl, item.dataStatus];
     }), headers.guides.length);
+    styleCandidateDecisions(guideSheet, headers.guides, guides.length);
 
     const itinerarySheet = ensureSheet(workbook, "两日行程", headers.itinerary);
     const itineraryRows = [
@@ -672,7 +1035,7 @@ async function syncToExcel(state) {
     ], headers.overview.length);
 
     for (const sheet of workbook.worksheets) {
-      sheet.pageSetup = { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.25, right: 0.25, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 } };
+      sheet.pageSetup = { ...(sheet.pageSetup || {}), orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.25, right: 0.25, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 } };
       sheet.headerFooter = { ...(sheet.headerFooter || {}), oddFooter: "&L扬州团队旅行攻略&R第 &P / &N 页" };
     }
     state.settings.lastExcelSync = new Date().toISOString();
@@ -696,7 +1059,119 @@ function value(row, map, name) {
   const column = map.get(name);
   const raw = column ? row.getCell(column).value : null;
   if (raw && typeof raw === "object" && "text" in raw) return raw.text;
+  if (raw && typeof raw === "object" && "result" in raw) return raw.result ?? "";
   return raw ?? "";
+}
+
+function scalarCell(cell) {
+  const raw = cell?.value;
+  if (raw && typeof raw === "object" && "text" in raw) return raw.text;
+  if (raw && typeof raw === "object" && "result" in raw) return raw.result ?? "";
+  return raw ?? "";
+}
+
+function importFinalPlanHome(workbook, state) {
+  const sheet = workbook.getWorksheet("行程首页");
+  if (!sheet) return false;
+  const labelRows = new Map();
+  let itineraryHeaderRow = 0;
+  let reservationHeaderRow = 0;
+  sheet.eachRow((row, number) => {
+    const first = String(scalarCell(row.getCell(1)) || "").trim();
+    const second = String(scalarCell(row.getCell(2)) || "").trim();
+    if (first) labelRows.set(first, number);
+    if (first === "日期" && second === "开始时间") itineraryHeaderRow = number;
+    if (first === "ID" && second === "待办事项") reservationHeaderRow = number;
+  });
+  const field = (label, fallback = "") => {
+    const row = labelRows.get(label);
+    if (!row) return fallback;
+    const edited = scalarCell(sheet.getCell(row, 2));
+    return edited === "" || edited === null || edited === undefined ? fallback : edited;
+  };
+  const existing = state.finalPlan;
+  const itinerary = [];
+  if (itineraryHeaderRow) {
+    const lastItineraryRow = reservationHeaderRow ? reservationHeaderRow - 2 : sheet.rowCount;
+    for (let number = itineraryHeaderRow + 1; number <= lastItineraryRow; number += 1) {
+      const row = sheet.getRow(number);
+      const day = String(scalarCell(row.getCell(1)) || "").trim();
+      const title = String(scalarCell(row.getCell(5)) || "").trim();
+      if (!day || !title || day.startsWith("四、")) continue;
+      const numericCost = Number(scalarCell(row.getCell(9)));
+      itinerary.push({
+        day,
+        time: String(scalarCell(row.getCell(2)) || ""),
+        endTime: String(scalarCell(row.getCell(3)) || ""),
+        category: String(scalarCell(row.getCell(4)) || "安排"),
+        title,
+        subtitle: String(scalarCell(row.getCell(6)) || ""),
+        address: String(scalarCell(row.getCell(7)) || "待补充"),
+        transport: String(scalarCell(row.getCell(8)) || "待补充"),
+        cost: Number.isFinite(numericCost) ? numericCost : 0,
+        bookingStatus: String(scalarCell(row.getCell(10)) || "待确认"),
+        sourceUrl: String(scalarCell(row.getCell(11)) || ""),
+        note: String(scalarCell(row.getCell(12)) || ""),
+        sourceId: "",
+      });
+    }
+  }
+  const reservations = [];
+  if (reservationHeaderRow) {
+    for (let number = reservationHeaderRow + 1; number <= sheet.rowCount; number += 1) {
+      const row = sheet.getRow(number);
+      const item = String(scalarCell(row.getCell(2)) || "").trim();
+      if (!item) continue;
+      reservations.push({
+        id: String(scalarCell(row.getCell(1)) || `reserve-${randomUUID()}`),
+        item,
+        type: String(scalarCell(row.getCell(3)) || "待分类"),
+        targetTime: String(scalarCell(row.getCell(4)) || "待确认"),
+        status: String(scalarCell(row.getCell(5)) || "待确认"),
+        owner: String(scalarCell(row.getCell(6)) || "待认领"),
+        deadline: String(scalarCell(row.getCell(7)) || "待确认"),
+        note: String(scalarCell(row.getCell(8)) || ""),
+      });
+    }
+  }
+  state.finalPlan = {
+    ...existing,
+    version: "excel-home-v1",
+    title: String(field("方案标题", existing.title)),
+    destination: String(field("目的地", existing.destination)),
+    dates: String(field("出行日期", existing.dates)),
+    schedule: String(field("行程结构", existing.schedule)),
+    people: Number(field("同行人数", existing.people)) || existing.people,
+    nights: Number(field("住宿晚数", existing.nights)) || existing.nights,
+    perPersonBudget: field("人均预算", existing.perPersonBudget),
+    summary: String(field("方案说明", existing.summary)),
+    stay: {
+      ...existing.stay,
+      name: String(field("民宿名称", existing.stay.name)),
+      address: String(field("详细地址", existing.stay.address)),
+      capacity: String(field("适合人数", existing.stay.capacity)),
+      roomsBeds: String(field("房间 / 床位", existing.stay.roomsBeds)),
+      twoNightTotal: field("两晚总价", existing.stay.twoNightTotal),
+      checkInOut: String(field("入住 / 退房", existing.stay.checkInOut)),
+      barbecue: String(field("能否烧烤", existing.stay.barbecue)),
+      bbqEquipment: String(field("烧烤设备 / 费用", existing.stay.bbqEquipment)),
+      breakfast: String(field("早餐安排", existing.stay.breakfast)),
+      sourceUrl: String(field("民宿原始链接", existing.stay.sourceUrl)),
+    },
+    itinerary: itineraryHeaderRow ? itinerary : existing.itinerary,
+    reservations: reservationHeaderRow ? reservations : existing.reservations,
+    updatedAt: new Date().toISOString(),
+  };
+  state.itinerary = splitFinalItinerary(state.finalPlan.itinerary);
+  state.reservations = state.finalPlan.reservations.map((item) => ({ ...item }));
+  state.project.name = state.finalPlan.title;
+  state.project.destination = state.finalPlan.destination;
+  state.project.people = state.finalPlan.people;
+  state.tripProfile.dates = state.finalPlan.dates;
+  state.tripProfile.schedule = state.finalPlan.schedule;
+  state.tripProfile.groupSize = state.finalPlan.people;
+  state.tripProfile.nights = state.finalPlan.nights;
+  return true;
 }
 
 async function importFromExcel() {
@@ -704,6 +1179,7 @@ async function importFromExcel() {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.readFile(workbookPath);
   const state = await readState();
+  const hasFinalPlanHome = importFinalPlanHome(workbook, state);
   const configs = [
     ["住宿候选", "住宿", "每晚价格", { address: "详细地址", capacity: "适合人数", rooms: "房间", beds: "床位", bathrooms: "卫浴", twoNightTotal: "两晚总价", environment: "环境特点", entireRental: "是否整租", kitchen: "厨房", barbecue: "能否烧烤", bbqEquipment: "烧烤设备/费用", breakfast: "早餐", parking: "停车", transport: "交通", checkIn: "入住时间", checkOut: "退房时间", bookingStatus: "预订状态" }],
     ["活动候选", null, "价格", { address: "详细地址", capacity: "适合人数", difficulty: "难度", horrorLevel: "恐怖程度", openingHours: "营业时间", reservation: "预约要求", bookingStatus: "预订状态" }],
@@ -743,8 +1219,24 @@ async function importFromExcel() {
     });
   }
 
+  const guideSheet = workbook.getWorksheet("攻略文章");
+  if (guideSheet) {
+    const map = headerIndex(guideSheet);
+    guideSheet.eachRow((row, number) => {
+      if (number < 4) return;
+      const id = String(value(row, map, "ID") || "").trim();
+      if (!id) return;
+      const index = state.places.findIndex((item) => item.id === id);
+      if (index < 0) return;
+      state.places[index] = {
+        ...state.places[index],
+        selected: String(value(row, map, "是否入选")).trim() === "是",
+      };
+    });
+  }
+
   const itinerarySheet = workbook.getWorksheet("两日行程");
-  if (itinerarySheet) {
+  if (itinerarySheet && !hasFinalPlanHome) {
     const map = headerIndex(itinerarySheet);
     const imported = { day0: [], day1: [], day2: [] };
     itinerarySheet.eachRow((row, number) => {
@@ -772,7 +1264,7 @@ async function importFromExcel() {
   }
 
   const reservationSheet = workbook.getWorksheet("预订清单");
-  if (reservationSheet) {
+  if (reservationSheet && !hasFinalPlanHome) {
     const map = headerIndex(reservationSheet);
     reservationSheet.eachRow((row, number) => {
       if (number < 4) return;
@@ -794,7 +1286,7 @@ async function importFromExcel() {
   }
   state.settings.lastExcelSync = new Date().toISOString();
   await writeState(state);
-  lastKnownWorkbookMtime = (await fs.stat(workbookPath)).mtimeMs;
+  await syncToExcel(state);
 }
 
 async function stateForClient() {
@@ -843,6 +1335,42 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === "GET" && url.pathname === "/api/state") {
       return sendJson(response, 200, await stateForClient());
+    }
+    if (request.method === "POST" && url.pathname === "/api/final-plan") {
+      const body = await readBody(request);
+      const state = await readState();
+      const baseUpdatedAt = limitedText(body.baseUpdatedAt, "", 80);
+      if (baseUpdatedAt && baseUpdatedAt !== state.finalPlan.updatedAt) {
+        return sendJson(response, 409, {
+          error: "这份方案刚刚被其他人或 Excel 更新过。请刷新后再编辑，避免覆盖最新内容。",
+          state: await stateForClient(),
+        });
+      }
+      state.finalPlan = sanitizeFinalPlan(body.finalPlan, state.finalPlan);
+      await syncToExcel(state);
+      return sendJson(response, 200, { ok: true, state: await stateForClient() });
+    }
+    const voteMatch = url.pathname.match(/^\/api\/places\/([^/]+)\/vote$/);
+    if (request.method === "POST" && voteMatch) {
+      const id = decodeURIComponent(voteMatch[1]);
+      const body = await readBody(request);
+      const nickname = limitedText(body.nickname, "", 20);
+      const choice = limitedText(body.choice, "", 20);
+      if (!nickname || nickname === "团队成员") return sendJson(response, 400, { error: "请先填写团队昵称" });
+      if (!["想去", "可以", "不考虑"].includes(choice)) return sendJson(response, 400, { error: "请选择有效意见" });
+      const state = await readState();
+      const index = state.places.findIndex((item) => item.id === id);
+      if (index < 0) return sendJson(response, 404, { error: "候选项目不存在" });
+      const votes = { ...(state.places[index].votes || {}) };
+      const removed = votes[nickname] === choice;
+      if (removed) delete votes[nickname];
+      else votes[nickname] = choice;
+      state.places[index] = {
+        ...state.places[index],
+        votes,
+      };
+      await syncToExcel(state);
+      return sendJson(response, 200, { ok: true, removed, state: await stateForClient() });
     }
     if (request.method === "GET" && url.pathname === "/api/download/excel") {
       const bytes = await fs.readFile(workbookPath);

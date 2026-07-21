@@ -21,11 +21,15 @@ test("server renders the Yangzhou trip workspace", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>下扬州 · 团队旅行共创台<\/title>/);
-  assert.match(html, /六个人，两晚住在一起/);
-  assert.match(html, /周五晚到周日的初版方案/);
-  assert.match(html, /链接读不到也不会消失/);
-  assert.match(html, /链接收集/);
-  assert.match(html, /Excel 工作台/);
+  assert.match(html, /团队最终行程/);
+  assert.match(html, /投递一个好链接/);
+  assert.match(html, /住宿与待确认事项/);
+  assert.match(html, /最终内容只来自 Excel 第一张/);
+  assert.match(html, /已确定/);
+  assert.match(html, /待补充/);
+  assert.match(html, /投递链接/);
+  assert.match(html, /一起选择/);
+  assert.match(html, /管理/);
   assert.doesNotMatch(html, /Your site is taking shape|react-loading-skeleton/);
 });
 

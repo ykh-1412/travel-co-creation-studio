@@ -64,10 +64,13 @@ type Place = {
   pros: string[];
   cons: string[];
   selected: boolean;
+  votes?: Record<string, VoteChoice>;
   sourceUrl: string;
   dataStatus: string;
   details: PlaceDetails;
 };
+
+type VoteChoice = "想去" | "可以" | "不考虑";
 
 type ItineraryItem = {
   time: string;
@@ -94,6 +97,33 @@ type Reservation = {
   note: string;
 };
 
+type FinalPlan = {
+  version: string;
+  title: string;
+  destination: string;
+  dates: string;
+  schedule: string;
+  people: number;
+  nights: number;
+  perPersonBudget: string;
+  summary: string;
+  stay: {
+    name: string;
+    address: string;
+    capacity: string;
+    roomsBeds: string;
+    twoNightTotal: string;
+    checkInOut: string;
+    barbecue: string;
+    bbqEquipment: string;
+    breakfast: string;
+    sourceUrl: string;
+  };
+  itinerary: Array<ItineraryItem & { day: string; sourceUrl: string }>;
+  reservations: Reservation[];
+  updatedAt: string;
+};
+
 type AppState = {
   project: { name: string; destination: string; days: number; people: number; budget: number; status: string; tagline: string };
   tripProfile: { dates: string; schedule: string; groupSize: number; nights: number; stayPreference: string; barbecue: string; breakfasts: string[]; activity: string; accommodationBudget: string };
@@ -101,6 +131,7 @@ type AppState = {
   places: Place[];
   itinerary: { day0: ItineraryItem[]; day1: ItineraryItem[]; day2: ItineraryItem[] };
   reservations: Reservation[];
+  finalPlan: FinalPlan;
   settings: { provider: string; workbookPath: string; lastExcelSync: string };
 };
 
@@ -111,11 +142,27 @@ const EMPTY_STATE: AppState = {
   places: [],
   itinerary: { day0: [], day1: [], day2: [] },
   reservations: [],
+  finalPlan: {
+    version: "excel-home-v1",
+    title: "6 人扬州周末旅行",
+    destination: "扬州",
+    dates: "待团队确认",
+    schedule: "周五晚抵达 · 周日傍晚返程",
+    people: 6,
+    nights: 2,
+    perPersonBudget: "待团队确认",
+    summary: "周五晚集合，周末一起住、一起吃、一起玩。",
+    stay: { name: "未选择", address: "待补充", capacity: "6 人", roomsBeds: "待补充", twoNightTotal: "待补充", checkInOut: "待补充", barbecue: "待确认", bbqEquipment: "待确认", breakfast: "待确认", sourceUrl: "" },
+    itinerary: [],
+    reservations: [],
+    updatedAt: "",
+  },
   settings: { provider: "演示分析", workbookPath: "", lastExcelSync: "" },
 };
 
-const tabs = [["plan", "行程首页"], ["collect", "链接收集"], ["library", "候选资料库"], ["excel", "Excel 工作台"], ["settings", "运行设置"]] as const;
+const tabs = [["plan", "看行程"], ["collect", "投递链接"], ["library", "一起选择"], ["manage", "管理"]] as const;
 const categories = ["自动识别", "攻略文章", "住宿", "密室/活动", "景点", "餐饮"];
+const voteChoices: VoteChoice[] = ["想去", "可以", "不考虑"];
 
 function formatTime(value: string) {
   if (!value) return "尚未同步";
@@ -124,10 +171,15 @@ function formatTime(value: string) {
 }
 
 function statusTone(status: string) {
-  if (["已写入Excel", "已整理", "成功读取", "已预订", "已完成"].includes(status)) return "success";
-  if (["处理失败", "需要人工补充", "未整理", "读取失败", "读取受限"].includes(status)) return "warning";
+  if (["已写入Excel", "已整理", "成功读取", "已预订", "已完成", "已确定"].includes(status)) return "success";
+  if (["处理失败", "需要人工补充", "未整理", "读取失败", "读取受限", "待补充", "待确认", "待预订"].includes(status)) return "warning";
   if (["正在读取", "AI分析中", "整理中", "等待读取", "等待处理"].includes(status)) return "active";
   return "muted";
+}
+
+function isPending(value: unknown) {
+  const text = String(value ?? "").trim();
+  return !text || /待|未选择|未确定|未知|尚未|占位|空位|暂无/.test(text);
 }
 
 function apiBase() {
@@ -140,6 +192,19 @@ function sourceName(url: string) {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return "链接"; }
 }
 
+function mapSearchUrl(keyword: string) {
+  return `https://uri.amap.com/search?keyword=${encodeURIComponent(keyword)}&city=扬州&src=yangzhou-trip`;
+}
+
+function voteSummary(place: Place) {
+  const values = Object.values(place.votes || {});
+  return {
+    support: values.filter((item) => item === "想去").length,
+    okay: values.filter((item) => item === "可以").length,
+    reject: values.filter((item) => item === "不考虑").length,
+  };
+}
+
 function importantDetails(place: Place) {
   const d = place.details;
   if (place.category === "住宿") return [["详细地址", d.address], ["6 人容量", d.capacity], ["房间 / 床位", `${d.rooms} / ${d.beds}`], ["两晚总价", d.twoNightTotal], ["环境", d.environment], ["烧烤", d.barbecue], ["早餐", d.breakfast], ["预订", d.bookingStatus]];
@@ -148,17 +213,25 @@ function importantDetails(place: Place) {
   return [["涉及区域", place.area], ["数据状态", place.dataStatus]];
 }
 
+function clonePlan(plan: FinalPlan): FinalPlan {
+  return JSON.parse(JSON.stringify(plan)) as FinalPlan;
+}
+
 export default function Home() {
   const [state, setState] = useState<AppState>(EMPTY_STATE);
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number][0]>("plan");
   const [urls, setUrls] = useState("");
   const [category, setCategory] = useState("自动识别");
   const [submitter, setSubmitter] = useState("团队成员");
+  const [nickname, setNickname] = useState("团队成员");
   const [note, setNote] = useState("");
   const [sending, setSending] = useState(false);
   const [connected, setConnected] = useState(false);
   const [message, setMessage] = useState("");
   const [libraryFilter, setLibraryFilter] = useState("全部");
+  const [backendBase, setBackendBase] = useState("http://localhost:8787");
+  const [draftPlan, setDraftPlan] = useState<FinalPlan | null>(null);
+  const [savingPlan, setSavingPlan] = useState(false);
 
   async function refresh(silent = false) {
     try {
@@ -173,10 +246,23 @@ export default function Home() {
   }
 
   useEffect(() => {
-    const initial = window.setTimeout(() => refresh(), 0);
+    const initial = window.setTimeout(() => {
+      const savedNickname = window.localStorage.getItem("yangzhou-team-nickname") || "团队成员";
+      setNickname(savedNickname);
+      setSubmitter(savedNickname);
+      setBackendBase(apiBase());
+      refresh();
+    }, 0);
     const timer = window.setInterval(() => refresh(true), 3500);
     return () => { window.clearTimeout(initial); window.clearInterval(timer); };
   }, []);
+
+  function rememberNickname(value: string) {
+    const next = value.slice(0, 20);
+    setNickname(next);
+    setSubmitter(next || "团队成员");
+    if (next.trim()) window.localStorage.setItem("yangzhou-team-nickname", next.trim());
+  }
 
   const stats = useMemo(() => ({
     links: state.links.length,
@@ -185,6 +271,36 @@ export default function Home() {
     processing: state.links.filter((item) => item.organizedStatus === "整理中").length,
     selected: state.places.filter((item) => item.selected).length,
   }), [state]);
+
+  const finalPlan = state.finalPlan || EMPTY_STATE.finalPlan;
+  const finalFields = useMemo(() => [
+    finalPlan.title,
+    finalPlan.destination,
+    finalPlan.dates,
+    finalPlan.schedule,
+    finalPlan.people,
+    finalPlan.nights,
+    finalPlan.perPersonBudget,
+    finalPlan.summary,
+    finalPlan.stay.name,
+    finalPlan.stay.address,
+    finalPlan.stay.capacity,
+    finalPlan.stay.roomsBeds,
+    finalPlan.stay.twoNightTotal,
+    finalPlan.stay.checkInOut,
+    finalPlan.stay.barbecue,
+    finalPlan.stay.bbqEquipment,
+    finalPlan.stay.breakfast,
+    finalPlan.stay.sourceUrl,
+  ], [finalPlan]);
+  const finalProgress = useMemo(() => ({
+    confirmed: finalFields.filter((item) => !isPending(item)).length,
+    pending: finalFields.filter(isPending).length,
+  }), [finalFields]);
+  const groupedFinalItinerary = useMemo(() => ["周五晚上", "周六", "周日"].map((day) => ({
+    day,
+    items: finalPlan.itinerary.filter((item) => item.day === day),
+  })), [finalPlan.itinerary]);
 
   const filteredPlaces = useMemo(() => state.places.filter((place) => libraryFilter === "全部" || place.category === libraryFilter), [state.places, libraryFilter]);
 
@@ -214,117 +330,179 @@ export default function Home() {
     refresh(true);
   }
 
+  async function voteForPlace(id: string, choice: VoteChoice) {
+    const voter = nickname.trim();
+    if (!voter || voter === "团队成员") {
+      setMessage("请先填写你的昵称，再参与选择。");
+      return;
+    }
+    window.localStorage.setItem("yangzhou-team-nickname", voter);
+    try {
+      const response = await fetch(`${apiBase()}/api/places/${encodeURIComponent(id)}/vote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nickname: voter, choice }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "选择保存失败");
+      setState(result.state);
+      setMessage(result.removed ? `已取消 ${voter} 的“${choice}”选择，并同步到 Excel。` : `已记录：${voter}选择“${choice}”，并同步到 Excel。`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "选择保存失败，请稍后重试。");
+    }
+  }
+
   async function syncExcel() {
     setMessage("正在读取 Excel 的人工修改……");
     try {
       const response = await fetch(`${apiBase()}/api/sync/from-excel`, { method: "POST" });
       if (!response.ok) throw new Error("同步失败");
-      setMessage("Excel 中的候选、行程和预订状态已同步到网站。");
+      setMessage("Excel“行程首页”的最新内容已同步到网站。");
       refresh(true);
     } catch { setMessage("暂时无法读取 Excel，请确认文件没有被移动或占用。"); }
+  }
+
+  function startPlanEditing() {
+    setDraftPlan(clonePlan(finalPlan));
+    setMessage("");
+  }
+
+  async function savePlan() {
+    if (!draftPlan) return;
+    setSavingPlan(true);
+    setMessage("");
+    try {
+      const response = await fetch(`${apiBase()}/api/final-plan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ finalPlan: draftPlan, baseUpdatedAt: draftPlan.updatedAt }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        if (result.state) setState(result.state);
+        throw new Error(result.error || "保存失败");
+      }
+      setState(result.state);
+      setDraftPlan(null);
+      setMessage("已保存：网页和本地 Excel 已同步更新。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "保存失败，请稍后重试。");
+    } finally {
+      setSavingPlan(false);
+    }
   }
 
   return (
     <main>
       <header className="topbar">
-        <button className="brand" onClick={() => setActiveTab("plan")} aria-label="返回行程首页"><span className="brand-seal">扬</span><span><strong>下扬州</strong><small>团队旅行共创台</small></span></button>
+        <button className="brand" onClick={() => setActiveTab("plan")} aria-label="返回行程"><span className="brand-seal">扬</span><span><strong>下扬州</strong><small>6 人周末计划</small></span></button>
         <nav aria-label="网站主导航">{tabs.map(([key, label]) => <button key={key} className={activeTab === key ? "nav-active" : ""} onClick={() => setActiveTab(key)}>{label}</button>)}</nav>
-        <div className={`connection ${connected ? "online" : "offline"}`}><span aria-hidden="true" />{connected ? "本地后台运行中" : "等待后台"}</div>
+        <div className={`connection ${connected ? "online" : "offline"}`}><span aria-hidden="true" />{connected ? "已连接并自动同步" : "正在连接"}</div>
       </header>
 
       {message && <div className="toast" role="status"><span>{message}</span><button onClick={() => setMessage("")} aria-label="关闭提示">×</button></div>}
 
+      {draftPlan && <PlanEditor plan={draftPlan} saving={savingPlan} onChange={setDraftPlan} onCancel={() => setDraftPlan(null)} onSave={savePlan} />}
+
       {activeTab === "plan" && <>
-        <section className="hero shell">
-          <div className="hero-copy">
-            <p className="eyebrow">FRIDAY NIGHT → SUNDAY · YANGZHOU</p>
-            <h1>六个人，两晚住在一起，<br />把<em>扬州</em>过成一个周末。</h1>
-            <p className="hero-intro">{state.project.tagline} 日期：{state.tripProfile.dates}。</p>
-            <div className="trip-facts"><div><strong>{state.tripProfile.groupSize}</strong><span>人同行</span></div><div><strong>{state.tripProfile.nights}</strong><span>晚住宿</span></div><div><strong>1</strong><span>场民宿烧烤</span></div></div>
-            <div className="hero-actions"><button className="primary" onClick={() => setActiveTab("collect")}>投递新链接</button><button className="text-button" onClick={() => setActiveTab("library")}>查看 {state.places.length} 条候选资料 →</button></div>
-          </div>
-          <div className="route-card" aria-label="周末路线摘要">
-            <div className="route-card-head"><div><span>当前框架</span><strong>住在一起的扬州周末</strong></div><span className="paper-tag">{state.project.status}</span></div>
-            <div className="arrival-line"><b>FRI</b><div><strong>周五晚上抵达 · 入住两晚</strong><small>{state.itinerary.day0.map((item) => item.title).join(" → ")}</small></div></div>
-            <div className="route-line"><div className="route-day"><b>六</b><span>SAT</span></div><div className="route-stops">{state.itinerary.day1.slice(0, 4).map((item, index) => <div key={`${item.time}-${item.title}`}><i>{index + 1}</i><span><strong>{item.title}</strong><small>{item.time} · {item.bookingStatus}</small></span></div>)}</div></div>
-            <div className="route-divider" />
-            <div className="route-line compact"><div className="route-day"><b>日</b><span>SUN</span></div><div className="route-stops horizontal">{state.itinerary.day2.slice(0, 4).map((item) => <span key={`${item.time}-${item.title}`}>{item.title}</span>)}</div></div>
-            <p className="route-note">这是可继续修改的第一版。动态价格、营业时间和预订结果以最终核实为准。</p>
-          </div>
-        </section>
-
-        <section className="status-strip"><div className="shell status-grid"><div><span>团队链接</span><strong>{stats.links}</strong><small>全部保留记录</small></div><div><span>已整理</span><strong>{stats.completed}</strong><small>已写入 Excel</small></div><div><span>未整理</span><strong>{stats.unorganized}</strong><small>原因清楚可见</small></div><div className="status-accent"><span>正在处理</span><strong>{stats.processing}</strong><small>DeepSeek 后台任务</small></div></div></section>
-
-        <section className="shell requirements-section">
-          <div className="section-heading"><div><p className="eyebrow">TRIP BRIEF</p><h2>这次要找什么</h2></div><p>后续投递的链接都会按这些条件提取和比较，不满足或没写清楚的地方会明确标成“待核实”。</p></div>
-          <div className="requirement-grid">
-            <article><span>01 · 住宿</span><h3>6 人住两晚</h3><p>{state.tripProfile.stayPreference}</p><small>预算：{state.tripProfile.accommodationBudget}</small></article>
-            <article><span>02 · 周六晚上</span><h3>回民宿烧烤</h3><p>{state.tripProfile.barbecue}</p><small>订房前确认设备、费用和邻里限制</small></article>
-            <article><span>03 · 早餐</span><h3>两顿都安排</h3><p>{state.tripProfile.breakfasts.join(" · ")}</p><small>优先可预约、6 人同桌、交通顺路</small></article>
-            <article><span>04 · 团队活动</span><h3>密室或同类活动</h3><p>{state.tripProfile.activity}</p><small>核对主题、难度、恐怖程度与时长</small></article>
+        <section className="simple-hero">
+          <div className="shell simple-hero-grid">
+            <div className="simple-hero-copy">
+              <div className="sync-line"><span className={connected ? "online" : ""} />{connected ? `已和 Excel 同步 · ${formatTime(state.settings.lastExcelSync)}` : "正在连接本地资料"}</div>
+              <p className="eyebrow">团队最终行程</p>
+              <h1>{finalPlan.title}</h1>
+              <p className="simple-summary">{finalPlan.summary}</p>
+              <div className="simple-actions"><button className="primary" onClick={() => setActiveTab("collect")}>＋ 投递一个好链接</button><button className="small-button" onClick={() => setActiveTab("library")}>一起选候选</button></div>
+            </div>
+            <aside className="trip-at-a-glance">
+              <div><span>什么时候</span><strong className={isPending(finalPlan.dates) ? "pending-value" : ""}>{finalPlan.dates}</strong></div>
+              <div><span>怎么安排</span><strong>{finalPlan.schedule}</strong></div>
+              <div><span>几个人</span><strong>{finalPlan.people} 人 · {finalPlan.nights} 晚</strong></div>
+              <div><span>预算</span><strong className={isPending(finalPlan.perPersonBudget) ? "pending-value" : ""}>{finalPlan.perPersonBudget}</strong></div>
+            </aside>
           </div>
         </section>
 
-        <section className="flow-section"><div className="shell"><div className="section-heading"><div><p className="eyebrow">HOW IT FLOWS</p><h2>从链接，到可以出发</h2></div><p>链接读不到也不会消失；处理报告会告诉你缺了什么，团队可以换链接或补充说明。</p></div><div className="flow-track">{[["01","投递链接"],["02","读取网页"],["03","AI 提取"],["04","写入 Excel"],["05","团队入选"],["06","形成行程"]].map(([num,label], index) => <div key={num}><b>{num}</b><span>{label}</span>{index < 5 && <i>→</i>}</div>)}</div></div></section>
+        <section className="decision-strip"><div className="shell"><div><strong>{finalProgress.confirmed}</strong><span>项已确定</span></div><div className="attention"><strong>{finalProgress.pending}</strong><span>项还要确认</span></div><p>最终内容只来自 Excel 第一张「行程首页」，候选资料不会自动进入行程。</p><button className="small-button" onClick={() => setActiveTab("manage")}>去管理</button></div></section>
 
-        <section className="shell section itinerary-section">
-          <div className="section-heading"><div><p className="eyebrow">WEEKEND PLAN</p><h2>周五晚到周日的初版方案</h2></div><p>路线先把住宿、烧烤、两顿早餐和密室固定下来；真实链接到位后，再替换地址和价格。</p></div>
-          <DayPlan day="周五晚上" theme="抵达 · 入住 · 六人碰头" items={state.itinerary.day0} compact />
-          <div className="day-columns"><DayPlan day="周六" theme="早茶、园林与民宿烧烤" items={state.itinerary.day1} /><DayPlan day="周日" theme="早餐、密室与弹性返程" items={state.itinerary.day2} /></div>
+        <section className="shell essentials-section">
+          <div className="simple-section-title"><div><p className="eyebrow">先看重点</p><h2>住宿与待确认事项</h2></div><span>橙色内容表示还没有最终确定</span></div>
+          <div className="essentials-grid">
+            <article className="stay-summary-card">
+              <header><div><span>两晚住宿</span><h3>{finalPlan.stay.name}</h3></div><StatusPill value={finalPlan.stay.name} /></header>
+              <div className="stay-summary-fields"><FinalField label="地址" value={finalPlan.stay.address} /><FinalField label="房间 / 床位" value={finalPlan.stay.roomsBeds} /><FinalField label="两晚总价" value={finalPlan.stay.twoNightTotal} /><FinalField label="周六烧烤" value={finalPlan.stay.barbecue} /></div>
+              <div className="card-link-row">{!isPending(finalPlan.stay.address) && <a href={mapSearchUrl(finalPlan.stay.address)} target="_blank" rel="noreferrer">在高德地图查看</a>}{finalPlan.stay.sourceUrl && <a href={finalPlan.stay.sourceUrl} target="_blank" rel="noreferrer">查看民宿原链接</a>}</div>
+            </article>
+            <article className="pending-card">
+              <header><span>下一步</span><h3>优先确认这几项</h3></header>
+              {[{ label: "出行日期", value: finalPlan.dates }, { label: "人均预算", value: finalPlan.perPersonBudget }, { label: "民宿", value: finalPlan.stay.name }, { label: "烧烤条件", value: finalPlan.stay.barbecue }].map((item) => <div key={item.label}><StatusPill value={item.value} /><span>{item.label}</span><strong>{String(item.value)}</strong></div>)}
+              <button className="text-button" onClick={() => setActiveTab("manage")}>在 Excel 或网页中修改 →</button>
+            </article>
+          </div>
         </section>
 
-        <section className="reservation-section"><div className="shell"><div className="section-heading"><div><p className="eyebrow">BOOKING CHECKLIST</p><h2>需要确认和预订的事</h2></div><p>这里只管理准备工作，不会自动付款或替你下单。最终价格与取消政策请在预订页面再次核对。</p></div><div className="reservation-list">{state.reservations.map((item) => <article key={item.id}><span className="reservation-type">{item.type}</span><div><h3>{item.item}</h3><p>{item.targetTime} · {item.note}</p></div><div className="reservation-owner"><small>{item.owner}</small><span>截至 {item.deadline}</span></div><b className={`status-badge ${statusTone(item.status)}`}><i />{item.status}</b></article>)}</div></div></section>
+        <section className="final-itinerary-section simple-itinerary-section"><div className="shell"><div className="simple-section-title"><div><p className="eyebrow">两天怎么玩</p><h2>周五晚到周日</h2></div><span>修改 Excel 后，这里会自动刷新</span></div><div className="final-day-grid">{groupedFinalItinerary.map(({ day, items }) => <FinalDay key={day} day={day} items={items} />)}</div></div></section>
+
+        <section className="shell final-reservation-section simple-reservation-section"><div className="simple-section-title"><div><p className="eyebrow">出发前清单</p><h2>谁来确认、什么时候完成</h2></div><span>网站只记录进度，不会自动下单</span></div><div className="reservation-list">{finalPlan.reservations.length ? finalPlan.reservations.map((item) => <article key={item.id}><span className="reservation-type">{item.type}</span><div><h3>{item.item}</h3><p>{item.targetTime} · {item.note}</p></div><div className="reservation-owner"><small>{item.owner}</small><span>截至 {item.deadline}</span></div><b className={`status-badge ${statusTone(item.status)}`}><i />{item.status}</b></article>) : <div className="empty-state">还没有预订事项，请在 Excel 首页底部添加。</div>}</div></section>
       </>}
 
       {activeTab === "collect" && <section className="shell workspace-page">
-        <div className="page-title"><p className="eyebrow">LINK INBOX</p><h1>把大家觉得好的链接都放进来。</h1><p>民宿、酒店、攻略、餐厅和密室都可以。每条链接都会留下读取和整理结果，打不开也不会被悄悄忽略。</p></div>
+        <div className="page-title"><p className="eyebrow">投递灵感</p><h1>粘贴链接，剩下交给后台。</h1><p>民宿、攻略、餐厅和密室都可以。打不开的链接也会明确告诉你，不会悄悄遗漏。</p></div>
         <div className="report-summary"><div><span>全部链接</span><strong>{stats.links}</strong></div><div className="good"><span>已成功整理</span><strong>{stats.completed}</strong></div><div className="warn"><span>未整理</span><strong>{stats.unorganized}</strong></div><div><span>处理中</span><strong>{stats.processing}</strong></div></div>
         <div className="collect-layout">
           <form className="collect-form" onSubmit={submitLinks}>
             <label htmlFor="urls">链接列表</label><textarea id="urls" value={urls} onChange={(event) => setUrls(event.target.value)} placeholder={"粘贴攻略、民宿、密室或餐厅链接……\n每行一个，也可以一次粘贴多个"} />
-            <div className="form-row"><label>内容类型<select value={category} onChange={(event) => setCategory(event.target.value)}>{categories.map((item) => <option key={item}>{item}</option>)}</select></label><label>提交人<input value={submitter} onChange={(event) => setSubmitter(event.target.value)} /></label></div>
+            <div className="form-row"><label>大概是什么<select value={category} onChange={(event) => setCategory(event.target.value)}>{categories.map((item) => <option key={item}>{item}</option>)}</select></label><label>你的昵称<input value={submitter} onChange={(event) => rememberNickname(event.target.value)} placeholder="例如：小王" /></label></div>
             <label>重点关注<input value={note} onChange={(event) => setNote(event.target.value)} placeholder="例如：重点看 6 人能否住、周六能否烧烤" /></label>
             <button className="primary wide" disabled={sending}>{sending ? "正在提交……" : "开始后台整理"}</button><p className="form-hint">需要登录、验证码或限制抓取的平台会标记为“读取受限 / 未整理”，系统不会编造内容。</p>
           </form>
-          <aside className="pipeline-card"><span className="paper-tag">自动流水线</span><h3>每个链接的 6 个步骤</h3>{["保留原始链接与提交人", "尝试读取公开网页", "DeepSeek 提取事实", "列出已提取与缺失字段", "写入 Excel 对应工作表", "网站实时展示最新结果"].map((item, index) => <div className="pipeline-step" key={item}><b>{String(index + 1).padStart(2, "0")}</b><span>{item}</span></div>)}</aside>
+          <aside className="pipeline-card"><span className="paper-tag">提交后会发生什么</span><h3>三步就够了</h3>{["保存原始链接，不会丢失", "DeepSeek 整理已知事实和缺失项", "写入 Excel，并进入候选区"].map((item, index) => <div className="pipeline-step" key={item}><b>{String(index + 1).padStart(2, "0")}</b><span>{item}</span></div>)}<p className="pipeline-note">如果网页需要登录或验证码，会标记为“需要补充”，不会凭空编造。</p></aside>
         </div>
         <div className="task-panel"><div className="panel-heading"><div><h2>链接处理报告</h2><p>成功和失败都在这里；完整报告也已写入 Excel。</p></div><button className="small-button" onClick={() => refresh()}>刷新状态</button></div><div className="task-list">
           {state.links.length === 0 && <div className="empty-state">还没有团队链接。提交第一个链接后，处理过程会显示在这里。</div>}
           {state.links.map((item) => <article className="task-report" key={item.id}>
             <div className="task-report-main"><span className="source-icon">链</span><div><div className="task-title-line"><strong>{item.title || sourceName(item.url)}</strong><span>{item.category}</span></div><a href={item.url} target="_blank" rel="noreferrer">{item.url}</a><p>{item.resultNote}</p></div></div>
             <div className="task-statuses"><span className={`status-badge ${statusTone(item.readStatus)}`}><i />{item.readStatus}</span><span className={`status-badge ${statusTone(item.organizedStatus)}`}><i />{item.organizedStatus}</span><small>{formatTime(item.updatedAt)}</small></div>
-            <div className="fact-columns"><div><b>已提取</b><p>{item.factsFound.length ? item.factsFound.join(" · ") : "暂无"}</p></div><div><b>还缺少</b><p>{item.missingFields.length ? item.missingFields.join(" · ") : "无明显缺失"}</p></div></div>
+            <details className="task-details"><summary>查看整理详情</summary><div className="fact-columns"><div><b>已提取</b><p>{item.factsFound.length ? item.factsFound.join(" · ") : "暂无"}</p></div><div><b>还缺少</b><p>{item.missingFields.length ? item.missingFields.join(" · ") : "无明显缺失"}</p></div></div></details>
             <div className="task-report-foot"><span>{item.submitter} · {item.model || "等待分配模型"}</span>{(item.organizedStatus === "未整理" || item.status === "处理失败") && <button className="small-button" onClick={() => retryLink(item.id)}>重新尝试</button>}</div>
           </article>)}
         </div></div>
       </section>}
 
       {activeTab === "library" && <section className="shell workspace-page">
-        <div className="page-title split"><div><p className="eyebrow">CANDIDATE LIBRARY</p><h1>候选资料库</h1><p>住宿卡重点显示 6 人两晚、地址、烧烤和房型；“待核实”表示原链接没有给出可靠事实。</p></div><div className="library-count"><strong>{state.places.length}</strong><span>个候选项</span></div></div>
+        <div className="page-title split"><div><p className="eyebrow">一起选择</p><h1>大家看看，哪些真的想去？</h1><p>每个人用昵称表达意见。票数会写入 Excel，但只有你在 Excel 中标记“是否入选”后，才算正式采用。</p></div><div className="library-count"><strong>{state.places.length}</strong><span>个候选项</span></div></div>
+        <div className="nickname-bar"><div><strong>我的昵称</strong><span>不用注册，只用于区分是谁做的选择</span></div><input value={nickname} onChange={(event) => rememberNickname(event.target.value)} placeholder="例如：小王" maxLength={20} /></div>
+        <div className="candidate-notice"><strong>候选不等于最终行程</strong><span>大家先表达意见；最终仍以 Excel「行程首页」为准。</span></div>
         <div className="filter-bar">{["全部", "住宿", "活动", "景点", "餐饮", "攻略"].map((item) => <button key={item} className={libraryFilter === item ? "selected" : ""} onClick={() => setLibraryFilter(item)}>{item}</button>)}</div>
-        <div className="place-grid">{filteredPlaces.map((place) => <article className={`place-card ${place.category === "住宿" ? "stay-card" : ""}`} key={place.id}>
+        <div className="place-grid simple-place-grid">{filteredPlaces.map((place) => {
+          const votes = voteSummary(place);
+          const myVote = place.votes?.[nickname.trim()];
+          const details = importantDetails(place).slice(0, 4);
+          return <article className={`place-card simple-place-card ${place.selected ? "chosen-card" : ""}`} key={place.id}>
           <div className="place-top"><span className="place-category">{place.category}</span><span className={place.selected ? "selected-mark" : "candidate-mark"}>{place.selected ? "已入选" : "候选"}</span></div>
           <h3>{place.name}</h3><p className="place-meta">{place.area} · {place.duration || "时长待核实"}</p>
-          <div className="detail-grid">{importantDetails(place).map(([label, detail]) => <div key={label}><span>{label}</span><strong>{detail}</strong></div>)}</div>
-          <div className="place-tags">{place.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>
-          <div className="pros-cons"><div><b>适合的理由</b><p>{place.pros[0] || "等待分析"}</p></div><div><b>需要留意</b><p>{place.cons[0] || "等待核实"}</p></div></div>
-          <div className="place-footer"><div><span>参考预算</span><strong>{place.priceLabel}</strong></div><div className="score"><span>推荐度</span><strong>{place.score.toFixed(1)}</strong></div></div>
-          <div className="data-state">数据状态：{place.dataStatus}</div>{place.sourceUrl && <a className="source-link" href={place.sourceUrl} target="_blank" rel="noreferrer">查看原始链接 →</a>}
-        </article>)}</div>
+          <div className="candidate-highlight"><div><span>为什么值得看</span><strong>{place.pros[0] || "等待分析"}</strong></div><div><span>还要核实</span><strong>{place.cons[0] || "等待核实"}</strong></div></div>
+          <div className="detail-grid compact-details">{details.map(([label, detail]) => <div key={label}><span>{label}</span><strong>{detail}</strong></div>)}</div>
+          <div className="vote-panel"><div className="vote-summary"><strong>{votes.support}</strong><span>人想去</span><small>{votes.okay} 人可以 · {votes.reject} 人不考虑</small></div><div className="vote-buttons">{voteChoices.map((choice) => <button key={choice} className={myVote === choice ? "selected" : ""} onClick={() => voteForPlace(place.id, choice)}>{choice}</button>)}</div></div>
+          <details className="candidate-details"><summary>查看完整资料</summary><div className="place-tags">{place.tags.map((tag) => <span key={tag}>{tag}</span>)}</div><div className="place-footer"><div><span>参考预算</span><strong>{place.priceLabel}</strong></div><div className="score"><span>推荐度</span><strong>{place.score.toFixed(1)}</strong></div></div><p className="data-state">数据状态：{place.dataStatus}</p></details>
+          <div className="card-link-row">{place.details.address && !isPending(place.details.address) && <a href={mapSearchUrl(place.details.address)} target="_blank" rel="noreferrer">地图</a>}{place.sourceUrl && <a href={place.sourceUrl} target="_blank" rel="noreferrer">原始链接</a>}</div>
+        </article>})}</div>
       </section>}
 
-      {activeTab === "excel" && <section className="shell workspace-page">
-        <div className="page-title"><p className="eyebrow">EXCEL WORKSPACE</p><h1>Excel 是最终可核对的旅行台账。</h1><p>除了候选资料，现在还新增了“处理报告”和“预订清单”；行程与预订状态在 Excel 修改后可以同步回网站。</p></div>
-        <div className="excel-hero"><div className="excel-file-icon">X</div><div className="excel-file-info"><span>当前工作簿</span><h2>扬州团队旅行攻略.xlsx</h2><p>最近同步：{formatTime(state.settings.lastExcelSync)}</p></div><div className="excel-actions"><a className="primary" href={`${apiBase()}/api/download/excel`}>下载 / 打开 Excel</a><button className="small-button" onClick={syncExcel}>读取最新修改</button></div></div>
-        <div className="sheet-grid">{[["项目总览","完成度、候选和下一步重点"],["链接汇总","所有原始链接与完整字段"],["处理报告","成功、失败和缺失信息"],["住宿候选","6 人两晚、烧烤与房型比较"],["活动候选","密室、景点和预约条件"],["餐饮候选","两顿早餐与正餐备选"],["攻略文章","文章摘要、避坑和缺失项"],["两日行程","周五晚 + 周六周日计划"],["预订清单","负责人、期限与当前状态"],["项目设置","人数、住宿偏好与模型设置"]].map(([name, desc], index) => <div className="sheet-card" key={name}><b>{String(index + 1).padStart(2, "0")}</b><div><strong>{name}</strong><p>{desc}</p></div></div>)}</div>
-        <div className="sync-explainer"><div><span>团队</span><b>提交链接</b></div><i>→</i><div><span>本地后台</span><b>读取 + DeepSeek 分析</b></div><i>→</i><div className="highlight"><span>Excel</span><b>完整归档 / 人工修改</b></div><i>→</i><div><span>网站</span><b>更新候选与行程</b></div></div>
-      </section>}
+      {activeTab === "manage" && <section className="shell workspace-page manage-page">
+        <div className="page-title"><p className="eyebrow">发起人管理</p><h1>你改 Excel，大家看网页。</h1><p>推荐只修改 Excel 第一张「行程首页」。保存以后，网页会在几秒内自动换成最新内容。</p></div>
+        <div className="excel-hero"><div className="excel-file-icon">X</div><div className="excel-file-info"><span>推荐管理方式</span><h2>扬州团队旅行攻略.xlsx</h2><p>最近同步：{formatTime(state.settings.lastExcelSync)}</p></div><div className="excel-actions"><a className="primary" href={`${backendBase}/api/download/excel`}>打开 Excel</a><button className="small-button" onClick={syncExcel}>立即读取修改</button></div></div>
 
-      {activeTab === "settings" && <section className="shell workspace-page narrow-page">
-        <div className="page-title"><p className="eyebrow">LOCAL SERVICE</p><h1>运行与模型设置</h1><p>API 密钥只保存在这台电脑，不会出现在网页或 Excel 中。</p></div>
-        <div className="settings-card"><div className="setting-row"><div><span>当前分析方式</span><strong>{state.settings.provider}</strong></div><span className="setting-state good">已配置</span></div><div className="setting-row"><div><span>本地后台</span><strong>{connected ? "正在运行" : "未连接"}</strong></div><span className={`setting-state ${connected ? "good" : ""}`}>{connected ? "可接收链接" : "请启动服务"}</span></div><div className="setting-row"><div><span>Excel 自动同步</span><strong>每 4 秒检查一次修改</strong></div><span className="setting-state good">已开启</span></div></div>
-        <div className="scope-note"><strong>访问范围</strong><p>后台和 Excel 仍保存在你的电脑；外地朋友通过密码保护的 HTTPS 公网网址访问，无需注册账号，也不需要处于同一个 Wi-Fi。</p></div>
-        <div className="scope-note safety"><strong>预订边界</strong><p>网站负责整理、比较和列出待办，不会自动付款。住宿、早餐、密室和门票都需要团队确认真实价格与取消政策后再下单。</p></div>
+        <div className="manage-choice-grid">
+          <article className="recommended-choice"><span>推荐</span><h2>直接修改 Excel</h2><p>适合集中整理大量内容。黄色单元格是最终方案；候选表中的“是否入选”决定网页上的采用状态。</p><ol><li>打开 Excel 第一张表</li><li>修改黄色内容并保存</li><li>回到网页自动看到结果</li></ol></article>
+          <article><span>备用</span><h2>在网页中快速修改</h2><p>适合临时改一个时间、负责人或民宿信息，保存后同样会写回 Excel。</p><button className="small-button" onClick={startPlanEditing}>打开网页编辑器</button></article>
+        </div>
+
+        <div className="simple-section-title manage-sheet-title"><div><p className="eyebrow">只需要认识这四张表</p><h2>其他工作表可以先不用管</h2></div></div>
+        <div className="sheet-grid simple-sheet-grid">{[["行程首页","最终网页的唯一内容来源"],["住宿候选","比较民宿并设置是否入选"],["活动候选","密室、景点和团队选择"],["处理报告","查看哪些链接成功或失败"]].map(([name, desc], index) => <div className={`sheet-card ${index === 0 ? "primary-sheet" : ""}`} key={name}><b>{String(index + 1).padStart(2, "0")}</b><div><strong>{name}</strong><p>{desc}</p></div></div>)}</div>
+
+        <details className="advanced-settings"><summary>查看运行状态</summary><div className="settings-card"><div className="setting-row"><div><span>当前分析方式</span><strong>{state.settings.provider}</strong></div><span className="setting-state good">已配置</span></div><div className="setting-row"><div><span>本地后台</span><strong>{connected ? "正在运行" : "未连接"}</strong></div><span className={`setting-state ${connected ? "good" : ""}`}>{connected ? "可用" : "请启动服务"}</span></div><div className="setting-row"><div><span>Excel 自动同步</span><strong>每 4 秒检查一次</strong></div><span className="setting-state good">已开启</span></div></div></details>
+        <div className="scope-note safety"><strong>不会自动下单</strong><p>网站只负责整理和展示。住宿、餐厅、密室与门票都需要大家确认真实价格和取消政策后再预订。</p></div>
       </section>}
 
       <footer><div className="shell"><span>下扬州 · 团队旅行共创台</span><span>本地数据 · Excel 可编辑 · DeepSeek 整理</span></div></footer>
@@ -332,7 +510,159 @@ export default function Home() {
   );
 }
 
-function DayPlan({ day, theme, items, compact = false }: { day: string; theme: string; items: ItineraryItem[]; compact?: boolean }) {
-  const total = items.reduce((sum, item) => sum + (item.cost || 0), 0);
-  return <article className={`day-plan ${compact ? "arrival-plan" : ""}`}><header><div><span>{day}</span><h3>{theme}</h3></div><p>预计 ¥{total} / 人</p></header><div className="timeline">{items.map((item) => <div className="timeline-item" key={`${item.time}-${item.title}`}><time>{item.time}</time><i /><div><span className="timeline-category">{item.category}</span><h4>{item.title}</h4><p>{item.subtitle}</p><small>{item.address} · {item.transport}</small><span className={`mini-booking ${statusTone(item.bookingStatus)}`}>{item.bookingStatus}</span>{item.note && <em>{item.note}</em>}</div></div>)}</div></article>;
+function PlanEditor({ plan, saving, onChange, onCancel, onSave }: {
+  plan: FinalPlan;
+  saving: boolean;
+  onChange: (plan: FinalPlan) => void;
+  onCancel: () => void;
+  onSave: () => void;
+}) {
+  function updatePlan(field: keyof FinalPlan, value: string | number) {
+    onChange({ ...plan, [field]: value } as FinalPlan);
+  }
+
+  function updateStay(field: keyof FinalPlan["stay"], value: string) {
+    onChange({ ...plan, stay: { ...plan.stay, [field]: value } });
+  }
+
+  function updateItinerary(index: number, field: keyof FinalPlan["itinerary"][number], value: string | number) {
+    const itinerary = plan.itinerary.map((item, itemIndex) => itemIndex === index ? { ...item, [field]: value } : item);
+    onChange({ ...plan, itinerary });
+  }
+
+  function updateReservation(index: number, field: keyof Reservation, value: string) {
+    const reservations = plan.reservations.map((item, itemIndex) => itemIndex === index ? { ...item, [field]: value } : item);
+    onChange({ ...plan, reservations });
+  }
+
+  function addItinerary() {
+    onChange({
+      ...plan,
+      itinerary: [...plan.itinerary, { day: "周六", time: "", endTime: "", category: "安排", title: "新增安排", subtitle: "", address: "待补充", transport: "待补充", cost: 0, bookingStatus: "待确认", sourceUrl: "", sourceId: "", note: "" }],
+    });
+  }
+
+  function addReservation() {
+    onChange({
+      ...plan,
+      reservations: [...plan.reservations, { id: `reserve-web-${Date.now()}`, item: "新增待办", type: "待分类", targetTime: "待确认", status: "待确认", owner: "待认领", deadline: "待确认", note: "" }],
+    });
+  }
+
+  return <div className="plan-editor-overlay" role="dialog" aria-modal="true" aria-labelledby="plan-editor-title">
+    <form className="plan-editor" onSubmit={(event) => { event.preventDefault(); onSave(); }}>
+      <header className="plan-editor-header">
+        <div><p className="eyebrow">WEB EDITOR · EXCEL SYNC</p><h1 id="plan-editor-title">编辑最终方案</h1><span>保存后会立即更新网站，并写入本地 Excel 第一张表「行程首页」。</span></div>
+        <div className="plan-editor-actions"><button type="button" className="small-button" onClick={onCancel} disabled={saving}>取消</button><button type="submit" className="primary" disabled={saving}>{saving ? "正在同步……" : "保存并同步 Excel"}</button></div>
+      </header>
+
+      <div className="plan-editor-body">
+        <section className="editor-section">
+          <div className="editor-section-title"><b>01</b><div><h2>基础信息</h2><p>控制网站标题、日期、人数和顶部介绍。</p></div></div>
+          <div className="editor-grid basic-grid">
+            <EditorField label="方案标题" value={plan.title} onChange={(value) => updatePlan("title", value)} wide />
+            <EditorField label="目的地" value={plan.destination} onChange={(value) => updatePlan("destination", value)} />
+            <EditorField label="出行日期" value={plan.dates} onChange={(value) => updatePlan("dates", value)} />
+            <EditorField label="行程结构" value={plan.schedule} onChange={(value) => updatePlan("schedule", value)} wide />
+            <EditorField label="同行人数" value={plan.people} inputType="number" onChange={(value) => updatePlan("people", Number(value) || 1)} />
+            <EditorField label="住宿晚数" value={plan.nights} inputType="number" onChange={(value) => updatePlan("nights", Number(value) || 1)} />
+            <EditorField label="人均预算" value={plan.perPersonBudget} onChange={(value) => updatePlan("perPersonBudget", value)} />
+            <EditorField label="方案说明" value={plan.summary} onChange={(value) => updatePlan("summary", value)} multiline wide />
+          </div>
+        </section>
+
+        <section className="editor-section">
+          <div className="editor-section-title"><b>02</b><div><h2>住宿信息</h2><p>民宿名称、地址、烧烤和早餐都会同步到 Excel。</p></div></div>
+          <div className="editor-grid">
+            <EditorField label="民宿名称" value={plan.stay.name} onChange={(value) => updateStay("name", value)} wide />
+            <EditorField label="详细地址" value={plan.stay.address} onChange={(value) => updateStay("address", value)} wide />
+            <EditorField label="适合人数" value={plan.stay.capacity} onChange={(value) => updateStay("capacity", value)} />
+            <EditorField label="房间 / 床位" value={plan.stay.roomsBeds} onChange={(value) => updateStay("roomsBeds", value)} />
+            <EditorField label="两晚总价" value={plan.stay.twoNightTotal} onChange={(value) => updateStay("twoNightTotal", value)} />
+            <EditorField label="入住 / 退房" value={plan.stay.checkInOut} onChange={(value) => updateStay("checkInOut", value)} />
+            <EditorField label="能否烧烤" value={plan.stay.barbecue} onChange={(value) => updateStay("barbecue", value)} multiline />
+            <EditorField label="烧烤设备 / 费用" value={plan.stay.bbqEquipment} onChange={(value) => updateStay("bbqEquipment", value)} multiline />
+            <EditorField label="早餐安排" value={plan.stay.breakfast} onChange={(value) => updateStay("breakfast", value)} multiline wide />
+            <EditorField label="民宿原始链接" value={plan.stay.sourceUrl} inputType="url" onChange={(value) => updateStay("sourceUrl", value)} wide />
+          </div>
+        </section>
+
+        <section className="editor-section">
+          <div className="editor-section-title with-action"><b>03</b><div><h2>周末行程</h2><p>可以增加、删除和调整每一项安排。</p></div><button type="button" className="small-button" onClick={addItinerary}>＋ 添加行程</button></div>
+          <div className="editor-card-list">
+            {plan.itinerary.map((item, index) => <article className="itinerary-editor-card" key={`${item.day}-${index}`}>
+              <header><strong>{String(index + 1).padStart(2, "0")} · {item.title || "未命名安排"}</strong><button type="button" className="remove-button" onClick={() => onChange({ ...plan, itinerary: plan.itinerary.filter((_, itemIndex) => itemIndex !== index) })}>删除</button></header>
+              <div className="editor-grid compact-grid">
+                <label className="editor-field"><span>日期</span><select value={item.day} onChange={(event) => updateItinerary(index, "day", event.target.value)}><option>周五晚上</option><option>周六</option><option>周日</option></select></label>
+                <EditorField label="开始时间" value={item.time} inputType="time" onChange={(value) => updateItinerary(index, "time", value)} />
+                <EditorField label="结束时间" value={item.endTime} inputType="time" onChange={(value) => updateItinerary(index, "endTime", value)} />
+                <EditorField label="类型" value={item.category} onChange={(value) => updateItinerary(index, "category", value)} />
+                <EditorField label="安排名称" value={item.title} onChange={(value) => updateItinerary(index, "title", value)} wide />
+                <EditorField label="详细说明" value={item.subtitle} onChange={(value) => updateItinerary(index, "subtitle", value)} multiline wide />
+                <EditorField label="地址" value={item.address} onChange={(value) => updateItinerary(index, "address", value)} wide />
+                <EditorField label="交通" value={item.transport} onChange={(value) => updateItinerary(index, "transport", value)} />
+                <EditorField label="费用 / 人" value={item.cost} inputType="number" onChange={(value) => updateItinerary(index, "cost", Number(value) || 0)} />
+                <EditorField label="预订状态" value={item.bookingStatus} onChange={(value) => updateItinerary(index, "bookingStatus", value)} />
+                <EditorField label="来源链接" value={item.sourceUrl} inputType="url" onChange={(value) => updateItinerary(index, "sourceUrl", value)} wide />
+                <EditorField label="备注" value={item.note} onChange={(value) => updateItinerary(index, "note", value)} multiline wide />
+              </div>
+            </article>)}
+            {!plan.itinerary.length && <div className="editor-empty">还没有行程，点击“添加行程”开始安排。</div>}
+          </div>
+        </section>
+
+        <section className="editor-section">
+          <div className="editor-section-title with-action"><b>04</b><div><h2>确认与预订</h2><p>网站只记录进度，不会自动付款或下单。</p></div><button type="button" className="small-button" onClick={addReservation}>＋ 添加待办</button></div>
+          <div className="editor-card-list">
+            {plan.reservations.map((item, index) => <article className="reservation-editor-card" key={item.id || index}>
+              <header><strong>{item.item || "未命名待办"}</strong><button type="button" className="remove-button" onClick={() => onChange({ ...plan, reservations: plan.reservations.filter((_, itemIndex) => itemIndex !== index) })}>删除</button></header>
+              <div className="editor-grid compact-grid">
+                <EditorField label="待办事项" value={item.item} onChange={(value) => updateReservation(index, "item", value)} wide />
+                <EditorField label="类型" value={item.type} onChange={(value) => updateReservation(index, "type", value)} />
+                <EditorField label="计划时间" value={item.targetTime} onChange={(value) => updateReservation(index, "targetTime", value)} />
+                <EditorField label="当前状态" value={item.status} onChange={(value) => updateReservation(index, "status", value)} />
+                <EditorField label="负责人" value={item.owner} onChange={(value) => updateReservation(index, "owner", value)} />
+                <EditorField label="完成期限" value={item.deadline} onChange={(value) => updateReservation(index, "deadline", value)} />
+                <EditorField label="核对说明" value={item.note} onChange={(value) => updateReservation(index, "note", value)} multiline wide />
+              </div>
+            </article>)}
+            {!plan.reservations.length && <div className="editor-empty">还没有预订待办，可以从住宿、早餐或密室开始添加。</div>}
+          </div>
+        </section>
+      </div>
+
+      <footer className="plan-editor-footer"><span>本次保存会同时覆盖网站最终方案和 Excel「行程首页」。</span><div className="plan-editor-actions"><button type="button" className="small-button" onClick={onCancel} disabled={saving}>取消</button><button type="submit" className="primary" disabled={saving}>{saving ? "正在同步……" : "保存并同步 Excel"}</button></div></footer>
+    </form>
+  </div>;
+}
+
+function EditorField({ label, value, onChange, inputType = "text", multiline = false, wide = false }: {
+  label: string;
+  value: string | number;
+  onChange: (value: string) => void;
+  inputType?: string;
+  multiline?: boolean;
+  wide?: boolean;
+}) {
+  return <label className={`editor-field ${wide ? "wide" : ""}`}><span>{label}</span>{multiline
+    ? <textarea value={value} onChange={(event) => onChange(event.target.value)} />
+    : <input type={inputType} min={inputType === "number" ? 0 : undefined} value={value} onChange={(event) => onChange(event.target.value)} />}</label>;
+}
+
+function StatusPill({ value }: { value: unknown }) {
+  const pending = isPending(value);
+  return <span className={`final-state ${pending ? "pending" : "confirmed"}`}><i />{pending ? "待补充" : "已确定"}</span>;
+}
+
+function FinalField({ label, value }: { label: string; value: unknown }) {
+  return <div className="final-field"><span>{label}</span><strong className={isPending(value) ? "pending-value" : ""}>{String(value || "待补充")}</strong><StatusPill value={value} /></div>;
+}
+
+function FinalDay({ day, items }: { day: string; items: FinalPlan["itinerary"] }) {
+  return <article className="final-day-card">
+    <header><span>{day === "周五晚上" ? "FRI" : day === "周六" ? "SAT" : "SUN"}</span><h3>{day}</h3><b>{items.length} 项安排</b></header>
+    <div className="final-day-items">{items.length ? items.map((item, index) => <div className="final-day-item" key={`${day}-${item.time}-${item.title}-${index}`}>
+      <time>{item.time}{item.endTime ? `–${item.endTime}` : ""}</time><i /><div><span>{item.category}</span><h4>{item.title}</h4><p>{item.subtitle || item.note}</p><small>{[item.address, item.transport].filter(Boolean).join(" · ") || "地点待补充"}</small><div className="itinerary-item-actions"><b className={`status-badge ${statusTone(item.bookingStatus)}`}><i />{item.bookingStatus || "待确认"}</b>{item.address && !isPending(item.address) && <a href={mapSearchUrl(item.address)} target="_blank" rel="noreferrer">地图</a>}{item.sourceUrl && <a href={item.sourceUrl} target="_blank" rel="noreferrer">来源</a>}</div></div>
+    </div>) : <div className="day-empty">请在 Excel 首页添加当天安排</div>}</div>
+  </article>;
 }
