@@ -28,8 +28,8 @@ test("server renders the Yangzhou trip workspace", async () => {
   assert.match(html, /已确定/);
   assert.match(html, /待补充/);
   assert.match(html, /投递链接/);
-  assert.match(html, /一起选择/);
-  assert.match(html, /管理/);
+  assert.match(html, /重点候选/);
+  assert.match(html, /Excel 管理/);
   assert.doesNotMatch(html, /Your site is taking shape|react-loading-skeleton/);
 });
 
