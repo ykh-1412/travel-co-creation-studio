@@ -94,6 +94,33 @@ type Reservation = {
   note: string;
 };
 
+type FinalPlan = {
+  version: string;
+  title: string;
+  destination: string;
+  dates: string;
+  schedule: string;
+  people: number;
+  nights: number;
+  perPersonBudget: string;
+  summary: string;
+  stay: {
+    name: string;
+    address: string;
+    capacity: string;
+    roomsBeds: string;
+    twoNightTotal: string;
+    checkInOut: string;
+    barbecue: string;
+    bbqEquipment: string;
+    breakfast: string;
+    sourceUrl: string;
+  };
+  itinerary: Array<ItineraryItem & { day: string; sourceUrl: string }>;
+  reservations: Reservation[];
+  updatedAt: string;
+};
+
 type AppState = {
   project: { name: string; destination: string; days: number; people: number; budget: number; status: string; tagline: string };
   tripProfile: { dates: string; schedule: string; groupSize: number; nights: number; stayPreference: string; barbecue: string; breakfasts: string[]; activity: string; accommodationBudget: string };
@@ -101,6 +128,7 @@ type AppState = {
   places: Place[];
   itinerary: { day0: ItineraryItem[]; day1: ItineraryItem[]; day2: ItineraryItem[] };
   reservations: Reservation[];
+  finalPlan: FinalPlan;
   settings: { provider: string; workbookPath: string; lastExcelSync: string };
 };
 
@@ -111,6 +139,21 @@ const EMPTY_STATE: AppState = {
   places: [],
   itinerary: { day0: [], day1: [], day2: [] },
   reservations: [],
+  finalPlan: {
+    version: "excel-home-v1",
+    title: "6 人扬州周末旅行",
+    destination: "扬州",
+    dates: "待团队确认",
+    schedule: "周五晚抵达 · 周日傍晚返程",
+    people: 6,
+    nights: 2,
+    perPersonBudget: "待团队确认",
+    summary: "周五晚集合，周末一起住、一起吃、一起玩。",
+    stay: { name: "未选择", address: "待补充", capacity: "6 人", roomsBeds: "待补充", twoNightTotal: "待补充", checkInOut: "待补充", barbecue: "待确认", bbqEquipment: "待确认", breakfast: "待确认", sourceUrl: "" },
+    itinerary: [],
+    reservations: [],
+    updatedAt: "",
+  },
   settings: { provider: "演示分析", workbookPath: "", lastExcelSync: "" },
 };
 
@@ -124,10 +167,15 @@ function formatTime(value: string) {
 }
 
 function statusTone(status: string) {
-  if (["已写入Excel", "已整理", "成功读取", "已预订", "已完成"].includes(status)) return "success";
-  if (["处理失败", "需要人工补充", "未整理", "读取失败", "读取受限"].includes(status)) return "warning";
+  if (["已写入Excel", "已整理", "成功读取", "已预订", "已完成", "已确定"].includes(status)) return "success";
+  if (["处理失败", "需要人工补充", "未整理", "读取失败", "读取受限", "待补充", "待确认", "待预订"].includes(status)) return "warning";
   if (["正在读取", "AI分析中", "整理中", "等待读取", "等待处理"].includes(status)) return "active";
   return "muted";
+}
+
+function isPending(value: unknown) {
+  const text = String(value ?? "").trim();
+  return !text || /待|未选择|未确定|未知|尚未|占位|空位|暂无/.test(text);
 }
 
 function apiBase() {
@@ -159,6 +207,7 @@ export default function Home() {
   const [connected, setConnected] = useState(false);
   const [message, setMessage] = useState("");
   const [libraryFilter, setLibraryFilter] = useState("全部");
+  const [backendBase, setBackendBase] = useState("http://localhost:8787");
 
   async function refresh(silent = false) {
     try {
@@ -173,7 +222,7 @@ export default function Home() {
   }
 
   useEffect(() => {
-    const initial = window.setTimeout(() => refresh(), 0);
+    const initial = window.setTimeout(() => { setBackendBase(apiBase()); refresh(); }, 0);
     const timer = window.setInterval(() => refresh(true), 3500);
     return () => { window.clearTimeout(initial); window.clearInterval(timer); };
   }, []);
@@ -185,6 +234,30 @@ export default function Home() {
     processing: state.links.filter((item) => item.organizedStatus === "整理中").length,
     selected: state.places.filter((item) => item.selected).length,
   }), [state]);
+
+  const finalPlan = state.finalPlan || EMPTY_STATE.finalPlan;
+  const finalFields = useMemo(() => [
+    finalPlan.destination,
+    finalPlan.dates,
+    finalPlan.schedule,
+    finalPlan.people,
+    finalPlan.nights,
+    finalPlan.perPersonBudget,
+    finalPlan.stay.name,
+    finalPlan.stay.address,
+    finalPlan.stay.roomsBeds,
+    finalPlan.stay.twoNightTotal,
+    finalPlan.stay.barbecue,
+    finalPlan.stay.breakfast,
+  ], [finalPlan]);
+  const finalProgress = useMemo(() => ({
+    confirmed: finalFields.filter((item) => !isPending(item)).length,
+    pending: finalFields.filter(isPending).length,
+  }), [finalFields]);
+  const groupedFinalItinerary = useMemo(() => ["周五晚上", "周六", "周日"].map((day) => ({
+    day,
+    items: finalPlan.itinerary.filter((item) => item.day === day),
+  })), [finalPlan.itinerary]);
 
   const filteredPlaces = useMemo(() => state.places.filter((place) => libraryFilter === "全部" || place.category === libraryFilter), [state.places, libraryFilter]);
 
@@ -219,7 +292,7 @@ export default function Home() {
     try {
       const response = await fetch(`${apiBase()}/api/sync/from-excel`, { method: "POST" });
       if (!response.ok) throw new Error("同步失败");
-      setMessage("Excel 中的候选、行程和预订状态已同步到网站。");
+      setMessage("Excel“行程首页”的最新内容已同步到网站。");
       refresh(true);
     } catch { setMessage("暂时无法读取 Excel，请确认文件没有被移动或占用。"); }
   }
@@ -235,45 +308,79 @@ export default function Home() {
       {message && <div className="toast" role="status"><span>{message}</span><button onClick={() => setMessage("")} aria-label="关闭提示">×</button></div>}
 
       {activeTab === "plan" && <>
-        <section className="hero shell">
-          <div className="hero-copy">
-            <p className="eyebrow">FRIDAY NIGHT → SUNDAY · YANGZHOU</p>
-            <h1>六个人，两晚住在一起，<br />把<em>扬州</em>过成一个周末。</h1>
-            <p className="hero-intro">{state.project.tagline} 日期：{state.tripProfile.dates}。</p>
-            <div className="trip-facts"><div><strong>{state.tripProfile.groupSize}</strong><span>人同行</span></div><div><strong>{state.tripProfile.nights}</strong><span>晚住宿</span></div><div><strong>1</strong><span>场民宿烧烤</span></div></div>
-            <div className="hero-actions"><button className="primary" onClick={() => setActiveTab("collect")}>投递新链接</button><button className="text-button" onClick={() => setActiveTab("library")}>查看 {state.places.length} 条候选资料 →</button></div>
-          </div>
-          <div className="route-card" aria-label="周末路线摘要">
-            <div className="route-card-head"><div><span>当前框架</span><strong>住在一起的扬州周末</strong></div><span className="paper-tag">{state.project.status}</span></div>
-            <div className="arrival-line"><b>FRI</b><div><strong>周五晚上抵达 · 入住两晚</strong><small>{state.itinerary.day0.map((item) => item.title).join(" → ")}</small></div></div>
-            <div className="route-line"><div className="route-day"><b>六</b><span>SAT</span></div><div className="route-stops">{state.itinerary.day1.slice(0, 4).map((item, index) => <div key={`${item.time}-${item.title}`}><i>{index + 1}</i><span><strong>{item.title}</strong><small>{item.time} · {item.bookingStatus}</small></span></div>)}</div></div>
-            <div className="route-divider" />
-            <div className="route-line compact"><div className="route-day"><b>日</b><span>SUN</span></div><div className="route-stops horizontal">{state.itinerary.day2.slice(0, 4).map((item) => <span key={`${item.time}-${item.title}`}>{item.title}</span>)}</div></div>
-            <p className="route-note">这是可继续修改的第一版。动态价格、营业时间和预订结果以最终核实为准。</p>
+        <section className="excel-source-banner">
+          <div className="shell">
+            <div><span className="excel-source-icon">X</span><p><strong>网页内容来自 Excel 的第一张表「行程首页」</strong><small>黄色单元格可以直接修改；保存后约 4 秒自动更新网页，也可以手动同步。</small></p></div>
+            <div className="excel-source-actions"><a className="small-button" href={`${backendBase}/api/download/excel`}>打开 Excel</a><button className="primary" onClick={syncExcel}>同步最新修改</button></div>
           </div>
         </section>
 
-        <section className="status-strip"><div className="shell status-grid"><div><span>团队链接</span><strong>{stats.links}</strong><small>全部保留记录</small></div><div><span>已整理</span><strong>{stats.completed}</strong><small>已写入 Excel</small></div><div><span>未整理</span><strong>{stats.unorganized}</strong><small>原因清楚可见</small></div><div className="status-accent"><span>正在处理</span><strong>{stats.processing}</strong><small>DeepSeek 后台任务</small></div></div></section>
+        <section className="final-hero shell">
+          <div className="final-hero-copy">
+            <p className="eyebrow">FINAL PLAN · EXCEL DRIVEN</p>
+            <span className="final-kicker">{finalPlan.destination} · {finalPlan.schedule}</span>
+            <h1>{finalPlan.title}</h1>
+            <p>{finalPlan.summary}</p>
+            <div className="final-quick-facts">
+              <div><span>目的地</span><strong>{finalPlan.destination}</strong></div>
+              <div><span>日期</span><strong className={isPending(finalPlan.dates) ? "pending-value" : ""}>{finalPlan.dates}</strong></div>
+              <div><span>人数 / 住宿</span><strong>{finalPlan.people} 人 · {finalPlan.nights} 晚</strong></div>
+              <div><span>人均预算</span><strong className={isPending(finalPlan.perPersonBudget) ? "pending-value" : ""}>{finalPlan.perPersonBudget}</strong></div>
+            </div>
+          </div>
+          <aside className="completion-card">
+            <span className="paper-tag">最终方案完成度</span>
+            <div className="completion-number"><strong>{finalProgress.confirmed}</strong><span>/ {finalFields.length}</span></div>
+            <div className="completion-bar"><i style={{ width: `${Math.round(finalProgress.confirmed / Math.max(finalFields.length, 1) * 100)}%` }} /></div>
+            <div className="completion-legend"><span className="done-dot">已确定 {finalProgress.confirmed}</span><span className="pending-dot">待补充 {finalProgress.pending}</span></div>
+            <p>这里统计基础信息和住宿信息。橙色内容还需要在 Excel 首页补充。</p>
+          </aside>
+        </section>
 
-        <section className="shell requirements-section">
-          <div className="section-heading"><div><p className="eyebrow">TRIP BRIEF</p><h2>这次要找什么</h2></div><p>后续投递的链接都会按这些条件提取和比较，不满足或没写清楚的地方会明确标成“待核实”。</p></div>
-          <div className="requirement-grid">
-            <article><span>01 · 住宿</span><h3>6 人住两晚</h3><p>{state.tripProfile.stayPreference}</p><small>预算：{state.tripProfile.accommodationBudget}</small></article>
-            <article><span>02 · 周六晚上</span><h3>回民宿烧烤</h3><p>{state.tripProfile.barbecue}</p><small>订房前确认设备、费用和邻里限制</small></article>
-            <article><span>03 · 早餐</span><h3>两顿都安排</h3><p>{state.tripProfile.breakfasts.join(" · ")}</p><small>优先可预约、6 人同桌、交通顺路</small></article>
-            <article><span>04 · 团队活动</span><h3>密室或同类活动</h3><p>{state.tripProfile.activity}</p><small>核对主题、难度、恐怖程度与时长</small></article>
+        <section className="shell final-overview-section">
+          <div className="final-section-heading"><div><p className="eyebrow">01 · OVERVIEW</p><h2>最终方案信息</h2></div><p>只有「行程首页」里的内容会进入这里；后面的工作表只是候选资料和整理记录。</p></div>
+          <div className="final-overview-grid">
+            <article className="final-panel">
+              <header><div><span>基础信息</span><h3>这次旅行</h3></div><StatusPill value={finalPlan.dates} /></header>
+              <div className="final-field-list">
+                <FinalField label="目的地" value={finalPlan.destination} />
+                <FinalField label="出行日期" value={finalPlan.dates} />
+                <FinalField label="时间安排" value={finalPlan.schedule} />
+                <FinalField label="团队人数" value={`${finalPlan.people} 人`} />
+                <FinalField label="住宿晚数" value={`${finalPlan.nights} 晚`} />
+                <FinalField label="人均预算" value={finalPlan.perPersonBudget} />
+              </div>
+            </article>
+            <article className="final-panel stay-panel">
+              <header><div><span>住宿确认</span><h3>{finalPlan.stay.name}</h3></div><StatusPill value={finalPlan.stay.name} /></header>
+              <div className="final-field-list two-column">
+                <FinalField label="详细地址" value={finalPlan.stay.address} />
+                <FinalField label="容纳人数" value={finalPlan.stay.capacity} />
+                <FinalField label="房间 / 床位" value={finalPlan.stay.roomsBeds} />
+                <FinalField label="两晚总价" value={finalPlan.stay.twoNightTotal} />
+                <FinalField label="入住 / 退房" value={finalPlan.stay.checkInOut} />
+                <FinalField label="周六烧烤" value={finalPlan.stay.barbecue} />
+                <FinalField label="烧烤设备" value={finalPlan.stay.bbqEquipment} />
+                <FinalField label="早餐条件" value={finalPlan.stay.breakfast} />
+              </div>
+              {finalPlan.stay.sourceUrl && <a className="source-link" href={finalPlan.stay.sourceUrl} target="_blank" rel="noreferrer">查看已选住宿原链接 →</a>}
+            </article>
           </div>
         </section>
 
-        <section className="flow-section"><div className="shell"><div className="section-heading"><div><p className="eyebrow">HOW IT FLOWS</p><h2>从链接，到可以出发</h2></div><p>链接读不到也不会消失；处理报告会告诉你缺了什么，团队可以换链接或补充说明。</p></div><div className="flow-track">{[["01","投递链接"],["02","读取网页"],["03","AI 提取"],["04","写入 Excel"],["05","团队入选"],["06","形成行程"]].map(([num,label], index) => <div key={num}><b>{num}</b><span>{label}</span>{index < 5 && <i>→</i>}</div>)}</div></div></section>
-
-        <section className="shell section itinerary-section">
-          <div className="section-heading"><div><p className="eyebrow">WEEKEND PLAN</p><h2>周五晚到周日的初版方案</h2></div><p>路线先把住宿、烧烤、两顿早餐和密室固定下来；真实链接到位后，再替换地址和价格。</p></div>
-          <DayPlan day="周五晚上" theme="抵达 · 入住 · 六人碰头" items={state.itinerary.day0} compact />
-          <div className="day-columns"><DayPlan day="周六" theme="早茶、园林与民宿烧烤" items={state.itinerary.day1} /><DayPlan day="周日" theme="早餐、密室与弹性返程" items={state.itinerary.day2} /></div>
+        <section className="final-itinerary-section">
+          <div className="shell">
+            <div className="final-section-heading"><div><p className="eyebrow">02 · ITINERARY</p><h2>周五晚到周日</h2></div><p>时间、地点和预订状态均来自 Excel 首页；直接改表格即可调整网页流程。</p></div>
+            <div className="final-day-grid">{groupedFinalItinerary.map(({ day, items }) => <FinalDay key={day} day={day} items={items} />)}</div>
+          </div>
         </section>
 
-        <section className="reservation-section"><div className="shell"><div className="section-heading"><div><p className="eyebrow">BOOKING CHECKLIST</p><h2>需要确认和预订的事</h2></div><p>这里只管理准备工作，不会自动付款或替你下单。最终价格与取消政策请在预订页面再次核对。</p></div><div className="reservation-list">{state.reservations.map((item) => <article key={item.id}><span className="reservation-type">{item.type}</span><div><h3>{item.item}</h3><p>{item.targetTime} · {item.note}</p></div><div className="reservation-owner"><small>{item.owner}</small><span>截至 {item.deadline}</span></div><b className={`status-badge ${statusTone(item.status)}`}><i />{item.status}</b></article>)}</div></div></section>
+        <section className="shell final-reservation-section">
+          <div className="final-section-heading"><div><p className="eyebrow">03 · CHECKLIST</p><h2>确认与预订</h2></div><p>网站只记录进度，不会自动付款或下单。</p></div>
+          <div className="reservation-list">{finalPlan.reservations.length ? finalPlan.reservations.map((item) => <article key={item.id}><span className="reservation-type">{item.type}</span><div><h3>{item.item}</h3><p>{item.targetTime} · {item.note}</p></div><div className="reservation-owner"><small>{item.owner}</small><span>截至 {item.deadline}</span></div><b className={`status-badge ${statusTone(item.status)}`}><i />{item.status}</b></article>) : <div className="empty-state">还没有预订事项，请在 Excel 首页底部添加。</div>}</div>
+        </section>
+
+        <section className="source-separation"><div className="shell"><div><p className="eyebrow">SOURCE SEPARATION</p><h2>最终方案和候选资料已经分开</h2><p>朋友投递的链接会先进入候选资料库，不会自动挤进最终方案。确认采用后，再把内容填写到 Excel「行程首页」。</p></div><div className="source-separation-actions"><button className="primary" onClick={() => setActiveTab("collect")}>继续投递链接</button><button className="small-button" onClick={() => setActiveTab("library")}>查看 {state.places.length} 条候选资料</button><span>{stats.completed} 条已整理 · {stats.unorganized} 条未整理 · {stats.processing} 条处理中</span></div></div></section>
       </>}
 
       {activeTab === "collect" && <section className="shell workspace-page">
@@ -300,7 +407,8 @@ export default function Home() {
       </section>}
 
       {activeTab === "library" && <section className="shell workspace-page">
-        <div className="page-title split"><div><p className="eyebrow">CANDIDATE LIBRARY</p><h1>候选资料库</h1><p>住宿卡重点显示 6 人两晚、地址、烧烤和房型；“待核实”表示原链接没有给出可靠事实。</p></div><div className="library-count"><strong>{state.places.length}</strong><span>个候选项</span></div></div>
+        <div className="page-title split"><div><p className="eyebrow">CANDIDATE LIBRARY</p><h1>候选资料库</h1><p>这里是 AI 整理出的备选内容，不会直接出现在最终方案。团队确认采用后，请把关键信息填写到 Excel「行程首页」。</p></div><div className="library-count"><strong>{state.places.length}</strong><span>个候选项</span></div></div>
+        <div className="candidate-notice"><strong>候选 ≠ 已确定</strong><span>卡片显示的是参考信息；最终以 Excel 首页和网站「行程首页」为准。</span></div>
         <div className="filter-bar">{["全部", "住宿", "活动", "景点", "餐饮", "攻略"].map((item) => <button key={item} className={libraryFilter === item ? "selected" : ""} onClick={() => setLibraryFilter(item)}>{item}</button>)}</div>
         <div className="place-grid">{filteredPlaces.map((place) => <article className={`place-card ${place.category === "住宿" ? "stay-card" : ""}`} key={place.id}>
           <div className="place-top"><span className="place-category">{place.category}</span><span className={place.selected ? "selected-mark" : "candidate-mark"}>{place.selected ? "已入选" : "候选"}</span></div>
@@ -314,10 +422,10 @@ export default function Home() {
       </section>}
 
       {activeTab === "excel" && <section className="shell workspace-page">
-        <div className="page-title"><p className="eyebrow">EXCEL WORKSPACE</p><h1>Excel 是最终可核对的旅行台账。</h1><p>除了候选资料，现在还新增了“处理报告”和“预订清单”；行程与预订状态在 Excel 修改后可以同步回网站。</p></div>
-        <div className="excel-hero"><div className="excel-file-icon">X</div><div className="excel-file-info"><span>当前工作簿</span><h2>扬州团队旅行攻略.xlsx</h2><p>最近同步：{formatTime(state.settings.lastExcelSync)}</p></div><div className="excel-actions"><a className="primary" href={`${apiBase()}/api/download/excel`}>下载 / 打开 Excel</a><button className="small-button" onClick={syncExcel}>读取最新修改</button></div></div>
-        <div className="sheet-grid">{[["项目总览","完成度、候选和下一步重点"],["链接汇总","所有原始链接与完整字段"],["处理报告","成功、失败和缺失信息"],["住宿候选","6 人两晚、烧烤与房型比较"],["活动候选","密室、景点和预约条件"],["餐饮候选","两顿早餐与正餐备选"],["攻略文章","文章摘要、避坑和缺失项"],["两日行程","周五晚 + 周六周日计划"],["预订清单","负责人、期限与当前状态"],["项目设置","人数、住宿偏好与模型设置"]].map(([name, desc], index) => <div className="sheet-card" key={name}><b>{String(index + 1).padStart(2, "0")}</b><div><strong>{name}</strong><p>{desc}</p></div></div>)}</div>
-        <div className="sync-explainer"><div><span>团队</span><b>提交链接</b></div><i>→</i><div><span>本地后台</span><b>读取 + DeepSeek 分析</b></div><i>→</i><div className="highlight"><span>Excel</span><b>完整归档 / 人工修改</b></div><i>→</i><div><span>网站</span><b>更新候选与行程</b></div></div>
+        <div className="page-title"><p className="eyebrow">EXCEL WORKSPACE</p><h1>先改 Excel 首页，网站跟着更新。</h1><p>第一张「行程首页」是最终方案的唯一来源；其余工作表保存候选、链接处理结果和参考信息。</p></div>
+        <div className="excel-hero"><div className="excel-file-icon">X</div><div className="excel-file-info"><span>当前工作簿</span><h2>扬州团队旅行攻略.xlsx</h2><p>最近同步：{formatTime(state.settings.lastExcelSync)}</p></div><div className="excel-actions"><a className="primary" href={`${backendBase}/api/download/excel`}>下载 / 打开 Excel</a><button className="small-button" onClick={syncExcel}>读取最新修改</button></div></div>
+        <div className="sheet-grid">{[["行程首页","唯一最终方案；黄色单元格可修改"],["项目总览","完成度、候选和下一步重点"],["链接汇总","所有原始链接与完整字段"],["处理报告","成功、失败和缺失信息"],["住宿候选","6 人两晚、烧烤与房型比较"],["活动候选","密室、景点和预约条件"],["餐饮候选","两顿早餐与正餐备选"],["攻略文章","文章摘要、避坑和缺失项"],["两日行程","旧版明细与参考计划"],["预订清单","旧版负责人、期限与状态明细"],["项目设置","人数、住宿偏好与模型设置"]].map(([name, desc], index) => <div className={`sheet-card ${index === 0 ? "primary-sheet" : ""}`} key={name}><b>{String(index + 1).padStart(2, "0")}</b><div><strong>{name}</strong><p>{desc}</p></div></div>)}</div>
+        <div className="sync-explainer"><div><span>团队</span><b>提交链接</b></div><i>→</i><div><span>候选区</span><b>DeepSeek 整理事实</b></div><i>→</i><div className="highlight"><span>Excel 第一张表</span><b>人工确认最终方案</b></div><i>→</i><div><span>网站首页</span><b>按表格自动生成</b></div></div>
       </section>}
 
       {activeTab === "settings" && <section className="shell workspace-page narrow-page">
@@ -332,7 +440,20 @@ export default function Home() {
   );
 }
 
-function DayPlan({ day, theme, items, compact = false }: { day: string; theme: string; items: ItineraryItem[]; compact?: boolean }) {
-  const total = items.reduce((sum, item) => sum + (item.cost || 0), 0);
-  return <article className={`day-plan ${compact ? "arrival-plan" : ""}`}><header><div><span>{day}</span><h3>{theme}</h3></div><p>预计 ¥{total} / 人</p></header><div className="timeline">{items.map((item) => <div className="timeline-item" key={`${item.time}-${item.title}`}><time>{item.time}</time><i /><div><span className="timeline-category">{item.category}</span><h4>{item.title}</h4><p>{item.subtitle}</p><small>{item.address} · {item.transport}</small><span className={`mini-booking ${statusTone(item.bookingStatus)}`}>{item.bookingStatus}</span>{item.note && <em>{item.note}</em>}</div></div>)}</div></article>;
+function StatusPill({ value }: { value: unknown }) {
+  const pending = isPending(value);
+  return <span className={`final-state ${pending ? "pending" : "confirmed"}`}><i />{pending ? "待补充" : "已确定"}</span>;
+}
+
+function FinalField({ label, value }: { label: string; value: unknown }) {
+  return <div className="final-field"><span>{label}</span><strong className={isPending(value) ? "pending-value" : ""}>{String(value || "待补充")}</strong><StatusPill value={value} /></div>;
+}
+
+function FinalDay({ day, items }: { day: string; items: FinalPlan["itinerary"] }) {
+  return <article className="final-day-card">
+    <header><span>{day === "周五晚上" ? "FRI" : day === "周六" ? "SAT" : "SUN"}</span><h3>{day}</h3><b>{items.length} 项安排</b></header>
+    <div className="final-day-items">{items.length ? items.map((item, index) => <div className="final-day-item" key={`${day}-${item.time}-${item.title}-${index}`}>
+      <time>{item.time}{item.endTime ? `–${item.endTime}` : ""}</time><i /><div><span>{item.category}</span><h4>{item.title}</h4><p>{item.subtitle || item.note}</p><small>{[item.address, item.transport].filter(Boolean).join(" · ") || "地点待补充"}</small><b className={`status-badge ${statusTone(item.bookingStatus)}`}><i />{item.bookingStatus || "待确认"}</b></div>
+    </div>) : <div className="day-empty">请在 Excel 首页添加当天安排</div>}</div>
+  </article>;
 }
