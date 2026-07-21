@@ -353,9 +353,16 @@ nav button.nav-active::after { width: 18px; transform: translateX(-50%); }
 .task-report-foot { display: flex; align-items: center; justify-content: space-between; margin: 10px 0 0 47px; }
 .task-report-foot > span { color: #899491; font-size: 9px; }
 
-.filter-bar { display: flex; gap: 4px; padding: 5px; width: fit-content; background: #e9e1d4; margin-bottom: 28px; }
+.filter-stack { margin-bottom: 28px; padding: 16px; background: rgba(255,255,255,.58); border: 1px solid var(--line); }
+.filter-label { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+.filter-label.secondary { margin-top: 15px; padding-top: 14px; border-top: 1px solid var(--line); }
+.filter-label strong { font-family: var(--font-serif), serif; font-size: 13px; }
+.filter-label span { color: var(--ink-soft); font-size: 9px; }
+.filter-bar { display: flex; flex-wrap: wrap; gap: 4px; padding: 5px; width: fit-content; max-width: 100%; background: #e9e1d4; margin-bottom: 0; }
 .filter-bar button { border: 0; background: none; padding: 9px 15px; font-size: 11px; cursor: pointer; }
 .filter-bar button.selected { background: var(--white); color: var(--jade); box-shadow: 0 2px 9px rgba(23,61,59,.08); }
+.sub-filter { background: var(--jade-pale); }
+.sub-filter button { padding: 8px 12px; font-size: 10px; }
 .place-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
 .place-card { display: flex; flex-direction: column; min-height: 520px; padding: 24px; background: var(--white); border: 1px solid var(--line); transition: .22s ease; }
 .place-card.stay-card { grid-column: span 2; }

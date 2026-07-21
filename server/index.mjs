@@ -60,7 +60,88 @@ const defaultDetails = {
   usage: "待分配",
   cancellationPolicy: "待核实",
   evidence: "待核实",
+  cuisineType: "待核实",
+  signatureDishes: "待核实",
+  sixPersonTotal: "待核实",
+  privateRoom: "待核实",
+  queueInfo: "待核实",
+  groupSuitability: "待核实",
+  themeName: "待核实",
+  escapeStyle: "待核实",
+  venueSize: "待核实",
+  roomCount: "待核实",
+  minPlayers: "待核实",
+  maxPlayers: "待核实",
+  sixPersonSession: "待核实",
+  npcInteraction: "待核实",
+  physicalIntensity: "待核实",
+  costume: "待核实",
+  leisureFacilities: "待核实",
+  packageInfo: "待核实",
+  overnight: "待核实",
+  includedMeals: "待核实",
+  restArea: "待核实",
+  genderArrangement: "待核实",
+  serviceRestrictions: "待核实",
+  attractionType: "待核实",
+  indoorOutdoor: "待核实",
+  weatherImpact: "待核实",
+  ticketInfo: "待核实",
+  recommendedDuration: "待核实",
 };
+
+const supportedCategories = ["住宿", "餐饮", "密室", "休闲娱乐", "景点", "攻略"];
+const subCategoryOptions = {
+  住宿: ["民宿", "酒店", "公寓", "客栈", "度假村", "其他住宿"],
+  餐饮: ["烧烤", "火锅", "早茶早餐", "炒菜正餐", "自助餐", "夜宵", "甜品饮品", "咖啡", "酒吧", "其他餐饮"],
+  密室: ["推理密室", "机关密室", "剧情密室", "恐怖密室", "未分类密室"],
+  休闲娱乐: ["汗蒸", "桑拿", "洗浴中心", "温泉", "SPA", "足疗按摩", "KTV", "桌游", "电竞", "电玩城", "沉浸式剧场", "其他休闲"],
+  景点: ["博物馆", "园林景区", "历史街区", "公园", "古镇", "露营", "户外运动", "演出展览", "其他景点"],
+  攻略: ["美食攻略", "住宿攻略", "行程攻略", "综合攻略"],
+};
+
+function validSubCategory(category, subCategory) {
+  return (subCategoryOptions[category] || []).includes(String(subCategory || ""));
+}
+
+function normalizeCategory(value, context = "") {
+  const explicit = String(value || "");
+  if (supportedCategories.includes(explicit)) return explicit;
+  const text = `${value || ""} ${context || ""}`;
+  if (/民宿|酒店|公寓|客栈|住宿|度假村/i.test(text)) return "住宿";
+  if (/密室|剧本杀|逃脱/i.test(text)) return "密室";
+  if (/餐饮|餐厅|美食|烧烤|烤肉|火锅|早茶|早餐|炒菜|淮扬菜|夜宵/i.test(text)) return "餐饮";
+  if (/汗蒸|桑拿|洗浴|温泉|SPA|足疗|按摩|KTV|桌游|电竞|电玩城|休闲娱乐|室内休闲/i.test(text)) return "休闲娱乐";
+  if (/景点|景区|园林|博物馆|历史街区|公园|古镇|露营|户外|Citywalk|演出|展览/i.test(text)) return "景点";
+  if (/攻略|文章|游记/i.test(text)) return "攻略";
+  if (String(value || "") === "活动") return "休闲娱乐";
+  return "攻略";
+}
+
+function inferSubCategory(text, category) {
+  const source = String(text || "");
+  const rules = {
+    住宿: [[/民宿/i, "民宿"], [/酒店/i, "酒店"], [/公寓/i, "公寓"], [/客栈/i, "客栈"], [/度假村/i, "度假村"]],
+    餐饮: [[/烧烤|烤串|烤肉/i, "烧烤"], [/火锅|涮肉|牛肉锅/i, "火锅"], [/早茶|早餐|包子|面馆/i, "早茶早餐"], [/炒菜|淮扬菜|家常菜|川菜|湘菜|私房菜/i, "炒菜正餐"], [/自助餐/i, "自助餐"], [/夜宵/i, "夜宵"], [/甜品|奶茶|饮品/i, "甜品饮品"], [/咖啡/i, "咖啡"], [/酒吧/i, "酒吧"]],
+    密室: [[/推理|硬核/i, "推理密室"], [/机关|解谜/i, "机关密室"], [/剧情|沉浸/i, "剧情密室"], [/恐怖|追逐|微恐|中恐|重恐/i, "恐怖密室"]],
+    休闲娱乐: [[/汗蒸/i, "汗蒸"], [/桑拿/i, "桑拿"], [/洗浴/i, "洗浴中心"], [/温泉/i, "温泉"], [/SPA/i, "SPA"], [/足疗|按摩/i, "足疗按摩"], [/KTV/i, "KTV"], [/桌游/i, "桌游"], [/电竞/i, "电竞"], [/电玩城/i, "电玩城"], [/沉浸式剧场/i, "沉浸式剧场"]],
+    景点: [[/博物馆/i, "博物馆"], [/园林|景区/i, "园林景区"], [/历史街区|老街|古街|Citywalk/i, "历史街区"], [/公园/i, "公园"], [/古镇/i, "古镇"], [/露营/i, "露营"], [/户外运动/i, "户外运动"], [/演出|展览/i, "演出展览"]],
+    攻略: [[/美食/i, "美食攻略"], [/住宿|民宿|酒店/i, "住宿攻略"], [/两日|周末|路线|行程/i, "行程攻略"]],
+  };
+  const fallback = { 住宿: "其他住宿", 餐饮: "其他餐饮", 密室: "未分类密室", 休闲娱乐: "其他休闲", 景点: "其他景点", 攻略: "综合攻略" }[category] || "待分类";
+  return (rules[category] || []).find(([pattern]) => pattern.test(source))?.[1] || fallback;
+}
+
+function inferFeatureTags(text, category) {
+  const source = String(text || "");
+  const rules = [
+    [/烧烤|烤串|烤肉/i, "烧烤"], [/火锅|涮肉/i, "火锅"], [/早茶|早餐/i, "早茶早餐"], [/包间/i, "有包间"],
+    [/微恐/i, "微恐"], [/中恐/i, "中恐"], [/重恐/i, "重恐"], [/无恐/i, "无恐"], [/NPC|真人互动/i, "真人互动"],
+    [/汗蒸/i, "汗蒸"], [/桑拿/i, "桑拿"], [/洗浴/i, "洗浴"], [/温泉/i, "温泉"], [/过夜|24小时/i, "可过夜"],
+    [/室内/i, "室内"], [/室外|户外/i, "室外"], [/预约/i, "需要预约"], [/停车/i, "可停车"], [/六人|6人/i, "适合6人"],
+  ];
+  return [...new Set([category, ...rules.filter(([pattern]) => pattern.test(source)).map(([, label]) => label)])].slice(0, 12);
+}
 
 const defaultTripProfile = {
   planVersion: "weekend-v2",
@@ -249,8 +330,13 @@ function normalizeState(raw) {
     const completed = item.status === "已写入Excel";
     const processing = ["等待处理", "正在读取", "AI分析中"].includes(item.status);
     const blocked = item.status === "需要人工补充";
+    const context = `${item.title || ""} ${item.summary || ""} ${item.note || ""}`;
+    const guideLike = /攻略|游记|指南|百科/i.test(context) || /wikipedia\.org|example\.com\/.*guide/i.test(item.url || "");
+    const category = item.category === "自动识别" ? "自动识别" : normalizeCategory(guideLike ? "攻略" : item.category, context);
     return {
       ...item,
+      category,
+      subCategory: category === "自动识别" ? "等待识别" : /wikipedia\.org/i.test(item.url || "") ? "综合攻略" : validSubCategory(category, item.subCategory) ? item.subCategory : inferSubCategory(context, category),
       readStatus: item.readStatus || (completed ? "成功读取" : blocked ? "读取受限" : item.status === "处理失败" ? "读取失败" : "等待读取"),
       organizedStatus: item.organizedStatus || (completed ? "已整理" : processing ? "整理中" : "未整理"),
       factsFound: Array.isArray(item.factsFound) ? item.factsFound : (completed ? ["页面标题", "内容分类", "核心摘要"] : []),
@@ -263,16 +349,30 @@ function normalizeState(raw) {
     "place-006": { address: "老城 / 瘦西湖周边待选", capacity: "6 人同桌", openingHours: "早餐时段待核实", reservation: "核对能否提前排号或预约", bookingStatus: "未预订", usage: "周六早茶" },
     "place-007": { address: "扬州市区待选", capacity: "6 人", openingHours: "待核实", reservation: "通常需预约，具体规则待真实链接", bookingStatus: "未预订", difficulty: "中等优先", horrorLevel: "团队确认", usage: "周日上午团队活动" },
   };
-  state.places = Array.isArray(state.places) ? state.places.map((item) => ({
-    ...item,
-    tags: Array.isArray(item.tags) ? item.tags : [],
-    pros: Array.isArray(item.pros) ? item.pros : [],
-    cons: Array.isArray(item.cons) ? item.cons : [],
-    votes: item.votes && typeof item.votes === "object" && !Array.isArray(item.votes) ? item.votes : {},
-    decisionStatus: item.decisionStatus || (item.selected ? "拟定" : "待比较"),
-    manualNote: String(item.manualNote || ""),
-    details: { ...defaultDetails, ...(seedDetails[item.id] || {}), ...(item.details || {}), address: item.details?.address || seedDetails[item.id]?.address || item.area || "待核实" },
-  })) : [];
+  state.places = Array.isArray(state.places) ? state.places.map((item) => {
+    const context = `${item.name || ""} ${(item.tags || []).join(" ")} ${item.details?.usage || ""}`;
+    const guideLike = /攻略|游记|指南|百科/i.test(context) || /wikipedia\.org|example\.com\/.*guide/i.test(item.sourceUrl || "");
+    const category = normalizeCategory(guideLike ? "攻略" : item.category, context);
+    const details = { ...defaultDetails, ...(seedDetails[item.id] || {}), ...(item.details || {}), address: item.details?.address || seedDetails[item.id]?.address || item.area || "待核实" };
+    if (item.id === "place-006") details.cuisineType = details.cuisineType === "待核实" ? "早茶早餐" : details.cuisineType;
+    if (item.id === "place-007") details.themeName = details.themeName === "待核实" ? "六人密室主题待选" : details.themeName;
+    const subCategory = /wikipedia\.org/i.test(item.sourceUrl || "") ? "综合攻略" : validSubCategory(category, item.subCategory) ? item.subCategory : inferSubCategory(context, category);
+    const featureTags = Array.isArray(item.featureTags) && item.featureTags.includes(category) ? item.featureTags : inferFeatureTags(`${context} ${subCategory}`, category);
+    return {
+      ...item,
+      category,
+      subCategory,
+      featureTags,
+      tags: Array.isArray(item.tags) ? item.tags : [],
+      pros: Array.isArray(item.pros) ? item.pros : [],
+      cons: Array.isArray(item.cons) ? item.cons : [],
+      votes: item.votes && typeof item.votes === "object" && !Array.isArray(item.votes) ? item.votes : {},
+      decisionStatus: item.decisionStatus || (item.selected ? "拟定" : "待比较"),
+      manualNote: String(item.manualNote || ""),
+      manualOverrides: item.manualOverrides && typeof item.manualOverrides === "object" && !Array.isArray(item.manualOverrides) ? item.manualOverrides : {},
+      details,
+    };
+  }) : [];
   state.itinerary = state.itinerary || {};
   if (!hasWeekendPlan) {
     state.itinerary.day0 = defaultFridayPlan;
@@ -483,15 +583,12 @@ function extractTitle(html, fallback) {
 
 function classify(text, requested) {
   if (requested && requested !== "自动识别") {
-    if (requested === "密室/活动") return "活动";
     if (requested === "攻略文章") return "攻略";
-    return requested;
+    if (requested === "室内休闲") return "休闲娱乐";
+    if (requested === "景点户外") return "景点";
+    return normalizeCategory(requested, text);
   }
-  if (/民宿|酒店|公寓|客栈|房型|入住|住宿/i.test(text)) return "住宿";
-  if (/密室|剧本杀|逃脱|沉浸式|团建|活动/i.test(text)) return "活动";
-  if (/餐厅|早茶|美食|人均|菜单|淮扬菜/i.test(text)) return "餐饮";
-  if (/景区|园林|博物馆|门票|景点|游览/i.test(text)) return "景点";
-  return "攻略";
+  return normalizeCategory("", text);
 }
 
 function parseJsonFromModel(text) {
@@ -499,14 +596,26 @@ function parseJsonFromModel(text) {
   return JSON.parse(trimmed);
 }
 
-const systemPrompt = `你是扬州 6 人周末旅行的资料整理助手。团队周五晚抵达、周日返程，住两晚，周六晚希望在民宿烧烤，并需要两顿早餐和一次密室或团队活动。你的任务是把每条链接拆成可以直接在 Excel 横向比较的字段。只根据网页正文输出严格 JSON，不得猜测或编造。
-顶层字段：name, category, area, price(number或null), priceLabel, duration, summary, tags(string数组), pros(string数组), cons(string数组), score(0到5), dataStatus, factsFound(string数组), missingFields(string数组), details(object)。
-category 只能是住宿、活动、景点、餐饮、攻略。
-details 必须包含：address, locationHighlights, distanceToCore, capacity, roomType, rooms, beds, bedTypes, bathrooms, twoNightTotal, extraFees, deposit, environment, entireRental, kitchen, barbecue, bbqEquipment, breakfast, parking, transport, checkIn, checkOut, bookingStatus, reservation, openingHours, difficulty, horrorLevel, usage, cancellationPolicy, evidence。
-住宿重点提取完整地址、地段特点、到核心景点的距离、6人容量、户型、房间/床/床型/卫浴、每晚价格、两晚含税总价、清洁费等额外费用、押金、环境、是否整租、厨房、是否允许烧烤及设备费用、早餐、停车、交通、入住退房、取消政策和预订要求；活动重点提取地址、适合人数、价格、时长、难度、恐怖程度、营业时间、取消政策和预约要求；餐饮重点提取地址、人均价格、营业时间、6人预约与适合周六早茶/周日早餐/正餐的用途。evidence 用简短文字列出支撑关键价格、位置和规格的网页原文事实，不要编造引文。网页没有明确写出的字段一律写“待核实”，并放入 missingFields。`;
+const categoryFieldInstructions = {
+  住宿: "details 提取 address, locationHighlights, capacity, roomType, rooms, beds, bedTypes, bathrooms, twoNightTotal, extraFees, deposit, environment, entireRental, kitchen, barbecue, bbqEquipment, breakfast, parking, checkIn, checkOut, bookingStatus, reservation, cancellationPolicy, evidence。重点判断是否适合 6 人、两晚总价和是否允许烧烤。",
+  餐饮: "details 提取 address, cuisineType, signatureDishes, sixPersonTotal, privateRoom, queueInfo, groupSuitability, environment, parking, openingHours, reservation, cancellationPolicy, bookingStatus, usage, evidence。subCategory 优先使用烧烤、火锅、早茶早餐、炒菜正餐、自助餐、夜宵、甜品饮品、咖啡、酒吧；price 表示人均价格。",
+  密室: "details 提取 address, themeName, escapeStyle, venueSize, roomCount, capacity, minPlayers, maxPlayers, sixPersonSession, horrorLevel, difficulty, npcInteraction, physicalIntensity, costume, openingHours, reservation, cancellationPolicy, parking, bookingStatus, sixPersonTotal, evidence。恐怖程度规范为无恐、微恐、中恐、重恐之一；没有原文依据则待核实。",
+  休闲娱乐: "details 提取 address, leisureFacilities, packageInfo, sixPersonTotal, capacity, openingHours, overnight, includedMeals, restArea, privateRoom, genderArrangement, serviceRestrictions, environment, parking, reservation, cancellationPolicy, bookingStatus, evidence。subCategory 优先使用汗蒸、桑拿、洗浴中心、温泉、SPA、足疗按摩、KTV、桌游、电竞、电玩城、沉浸式剧场。",
+  景点: "details 提取 address, attractionType, ticketInfo, recommendedDuration, indoorOutdoor, weatherImpact, openingHours, reservation, cancellationPolicy, parking, bookingStatus, evidence。当前不计算路程，必须尽量确定具体地点。",
+  攻略: "提取文章中明确提到的地点、餐饮、住宿或活动线索；subCategory 使用美食攻略、住宿攻略、行程攻略或综合攻略；details 至少提取 address, evidence。",
+};
 
-async function modelAnalysis(content, fallback) {
+function systemPromptFor(category) {
+  return `你是扬州 6 人周末旅行的资料整理助手。团队周五晚抵达、周日返程，住两晚，周六晚希望在民宿烧烤，并需要两顿早餐和一次密室或休闲活动。你的任务是把链接拆成可在 Excel 横向比较的数据。只根据网页正文输出严格 JSON，不得猜测或编造。
+顶层字段必须包含：name, category, subCategory, featureTags(string数组), area, price(number或null), priceLabel, duration, summary, tags(string数组), pros(string数组), cons(string数组), score(0到5), dataStatus, factsFound(string数组), missingFields(string数组), details(object)。
+category 只能是住宿、餐饮、密室、休闲娱乐、景点、攻略。当前预分类是“${category}”，只有正文明确证明分类错误时才调整。featureTags 可多选，例如烧烤、火锅、微恐、中恐、汗蒸、桑拿、洗浴、可过夜、适合6人。
+所有类别都要提取具体地点、价格、营业或入住时间、预约/取消规则、适合人数、优缺点和证据。${categoryFieldInstructions[category] || categoryFieldInstructions.攻略}
+evidence 用简短文字概括支撑关键价格、位置和规格的网页事实，不编造引文。网页没有明确写出的字段写“待核实”，并放入 missingFields。无关字段可以省略，系统会自动补齐。`;
+}
+
+async function modelAnalysis(content, fallback, category) {
   const provider = (process.env.AI_PROVIDER || "demo").toLowerCase();
+  const systemPrompt = systemPromptFor(category);
   if (provider === "deepseek") {
     if (!process.env.DEEPSEEK_API_KEY) throw new Error("DeepSeek 模式缺少 DEEPSEEK_API_KEY");
     const base = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
@@ -518,7 +627,7 @@ async function modelAnalysis(content, fallback) {
         model,
         thinking: { type: "disabled" },
         temperature: 0.2,
-        max_tokens: 1_800,
+        max_tokens: 3_200,
         response_format: { type: "json_object" },
         messages: [{ role: "system", content: systemPrompt }, { role: "user", content }],
       }),
@@ -563,6 +672,8 @@ function demoAnalysis(title, text, category, url) {
   return {
     name: title || hostname,
     category,
+    subCategory: inferSubCategory(`${title} ${text}`, category),
+    featureTags: inferFeatureTags(`${title} ${text}`, category),
     area: text.includes("扬州") ? "扬州（具体区域待核实）" : "地点待核实",
     price,
     priceLabel: price ? `参考 ¥${price}` : "价格待核实",
@@ -591,6 +702,33 @@ function normalizeDetails(value) {
   }));
 }
 
+function applyManualOverrides(place, overrides) {
+  const source = overrides && typeof overrides === "object" && !Array.isArray(overrides) ? overrides : {};
+  const next = { ...place, details: { ...place.details }, manualOverrides: { ...source } };
+  for (const [key, value] of Object.entries(source)) {
+    if (key.startsWith("details.")) next.details[key.slice(8)] = value;
+    else next[key] = value;
+  }
+  return next;
+}
+
+function rememberManualOverride(overrides, key, nextValue, currentValue) {
+  if (nextValue === "" || nextValue === null || nextValue === undefined) return;
+  const same = Array.isArray(nextValue)
+    ? JSON.stringify(nextValue) === JSON.stringify(Array.isArray(currentValue) ? currentValue : [])
+    : String(nextValue) === String(currentValue ?? "");
+  if (!same) overrides[key] = nextValue;
+}
+
+function manualOverrideSummary(place) {
+  const labels = {
+    name: "名称", area: "区域", subCategory: "子分类", featureTags: "特征标签", price: "价格", pros: "优点", cons: "缺点",
+    "details.address": "地址", "details.cuisineType": "餐饮类型", "details.signatureDishes": "招牌菜", "details.sixPersonTotal": "六人总价",
+    "details.horrorLevel": "恐怖程度", "details.difficulty": "难度", "details.venueSize": "场地规模", "details.leisureFacilities": "休闲设施",
+  };
+  return Object.keys(place.manualOverrides || {}).map((key) => labels[key] || key.replace(/^details\./, "")).join("；");
+}
+
 async function updateLink(id, patch) {
   const state = await readState();
   const index = state.links.findIndex((item) => item.id === id);
@@ -617,16 +755,25 @@ async function processLink(id) {
     const category = classify(`${title} ${text}`, record.category);
     await updateLink(id, { status: "AI分析中", title, category, readStatus: "成功读取", organizedStatus: "整理中", resultNote: "网页已读取，正在提取事实" });
     const fallback = demoAnalysis(title, text, category, record.url);
-    const analysis = await modelAnalysis(`链接：${record.url}\n标题：${title}\n正文：${text}`, fallback);
+    const analysis = await modelAnalysis(`链接：${record.url}\n标题：${title}\n正文：${text}`, fallback, category);
     const state = await readState();
     const linkIndex = state.links.findIndex((item) => item.id === id);
     if (linkIndex < 0) return;
     const factsFound = stringList(analysis.factsFound, fallback.factsFound).slice(0, 12);
     const missingFields = stringList(analysis.missingFields, fallback.missingFields).slice(0, 12);
+    const resolvedCategory = normalizeCategory(analysis.category || category, `${title} ${analysis.summary || ""}`);
+    const inferredSubCategory = inferSubCategory(`${title} ${text}`, resolvedCategory);
+    const proposedSubCategory = String(analysis.subCategory || inferredSubCategory).slice(0, 80);
+    const subCategory = validSubCategory(resolvedCategory, proposedSubCategory) ? proposedSubCategory : inferredSubCategory;
+    const featureTags = [...new Set([
+      ...stringList(analysis.featureTags),
+      ...inferFeatureTags(`${title} ${text} ${subCategory}`, resolvedCategory),
+    ])].slice(0, 12);
     state.links[linkIndex] = {
       ...state.links[linkIndex],
       title,
-      category: analysis.category || category,
+      category: resolvedCategory,
+      subCategory,
       summary: analysis.summary || fallback.summary,
       status: "已写入Excel",
       readStatus: "成功读取",
@@ -640,27 +787,31 @@ async function processLink(id) {
     };
     const existingIndex = state.places.findIndex((item) => item.sourceId === id);
     const existingPlace = existingIndex >= 0 ? state.places[existingIndex] : null;
-    const place = {
+    const analysedPlace = {
       id: existingPlace?.id || `place-${randomUUID()}`,
       sourceId: id,
       name: analysis.name || title,
-      category: analysis.category || category,
+      category: resolvedCategory,
+      subCategory,
+      featureTags,
       area: analysis.area || "地点待核实",
       price: Number.isFinite(analysis.price) ? analysis.price : null,
       priceLabel: analysis.priceLabel || "价格待核实",
       duration: analysis.duration || "时长待核实",
       score: Math.max(0, Math.min(5, Number(analysis.score) || 3.5)),
-      tags: stringList(analysis.tags, [category]).slice(0, 5),
+      tags: stringList(analysis.tags, featureTags).slice(0, 8),
       pros: stringList(analysis.pros, ["等待进一步分析"]).slice(0, 4),
       cons: stringList(analysis.cons, ["关键信息待核实"]).slice(0, 4),
       selected: existingPlace?.selected || false,
       votes: existingPlace?.votes || {},
       decisionStatus: existingPlace?.decisionStatus || (existingPlace?.selected ? "拟定" : "待比较"),
       manualNote: existingPlace?.manualNote || "",
+      manualOverrides: existingPlace?.manualOverrides || {},
       sourceUrl: record.url,
       dataStatus: analysis.dataStatus || "AI总结，等待人工核实",
       details: normalizeDetails(analysis.details),
     };
+    const place = applyManualOverrides(analysedPlace, existingPlace?.manualOverrides);
     if (existingIndex >= 0) state.places[existingIndex] = place;
     else state.places.unshift(place);
     await writeState(state);
@@ -690,13 +841,15 @@ function enqueueLink(id) {
 }
 
 const headers = {
-  links: ["ID", "提交时间", "提交人", "原始链接", "页面标题", "自动分类", "读取结果", "整理结果", "处理状态", "已提取信息", "缺失信息", "AI摘要", "分析模型", "错误原因", "备注"],
-  report: ["ID", "提交人", "页面标题", "分类", "读取结果", "整理结果", "结果说明", "已提取信息", "缺失信息", "错误原因", "原始链接", "更新时间"],
-  decisions: ["ID", "分类", "名称", "区域 / 位置", "参考价格", "核心规格", "主要亮点", "主要风险", "资料完整度", "缺失信息", "AI推荐分", "想去票", "可以票", "不考虑票", "人工结论", "是否入选", "人工备注", "原始链接"],
-  stays: ["ID", "名称", "区域", "详细地址", "地段特点", "核心景点距离", "每晚价格", "两晚总价", "额外费用", "押金", "适合人数", "户型", "房间", "床位", "床型", "卫浴", "环境特点", "是否整租", "厨房", "能否烧烤", "烧烤设备/费用", "早餐", "停车", "交通", "入住时间", "退房时间", "取消政策", "预订要求", "预订状态", "优点", "缺点", "推荐分", "资料完整度", "缺失信息", "证据摘要", "想去票", "可以票", "不考虑票", "投票详情", "人工结论", "是否入选", "人工备注", "原始链接", "数据状态"],
-  activities: ["ID", "名称", "活动类型", "区域", "详细地址", "价格", "适合人数", "时长", "难度", "恐怖程度", "营业时间", "预约要求", "取消政策", "预订状态", "优点", "缺点", "推荐分", "资料完整度", "缺失信息", "证据摘要", "想去票", "可以票", "不考虑票", "投票详情", "人工结论", "是否入选", "人工备注", "原始链接", "数据状态"],
-  food: ["ID", "名称", "类型", "适合安排", "区域", "详细地址", "人均价格", "营业时间", "预约要求", "取消政策", "预订状态", "推荐菜/特点", "优点", "缺点", "推荐分", "资料完整度", "缺失信息", "证据摘要", "想去票", "可以票", "不考虑票", "投票详情", "人工结论", "是否入选", "人工备注", "原始链接", "数据状态"],
-  guides: ["ID", "标题", "涉及区域", "AI摘要", "避坑信息", "交通建议", "已提取信息", "缺失信息", "资料完整度", "证据摘要", "想去票", "可以票", "不考虑票", "投票详情", "人工结论", "是否入选", "人工备注", "原始链接", "数据状态"],
+  links: ["ID", "提交时间", "提交人", "原始链接", "页面标题", "大类", "子分类", "读取结果", "整理结果", "处理状态", "已提取信息", "缺失信息", "AI摘要", "分析模型", "错误原因", "备注"],
+  report: ["ID", "提交人", "页面标题", "大类", "子分类", "读取结果", "整理结果", "结果说明", "已提取信息", "缺失信息", "错误原因", "原始链接", "更新时间"],
+  decisions: ["ID", "大类", "子分类", "名称", "区域 / 位置", "参考价格", "核心规格", "特征标签", "主要亮点", "主要风险", "资料完整度", "缺失信息", "AI推荐分", "想去票", "可以票", "不考虑票", "人工结论", "是否入选", "人工备注", "人工保护字段", "原始链接"],
+  stays: ["ID", "名称", "子分类", "特征标签", "区域", "详细地址", "地段特点", "核心景点距离", "每晚价格", "两晚总价", "额外费用", "押金", "适合人数", "户型", "房间", "床位", "床型", "卫浴", "环境特点", "是否整租", "厨房", "能否烧烤", "烧烤设备/费用", "早餐", "停车", "交通", "入住时间", "退房时间", "取消政策", "预订要求", "预订状态", "优点", "缺点", "推荐分", "资料完整度", "缺失信息", "证据摘要", "想去票", "可以票", "不考虑票", "投票详情", "人工结论", "是否入选", "人工备注", "人工保护字段", "原始链接", "数据状态"],
+  food: ["ID", "名称", "子分类", "特征标签", "适合安排", "区域", "详细地址", "人均价格", "六人预计总价", "招牌菜", "包间", "六人适合度", "排队情况", "营业时间", "预约要求", "取消政策", "停车", "环境特点", "预订状态", "优点", "缺点", "推荐分", "资料完整度", "缺失信息", "证据摘要", "想去票", "可以票", "不考虑票", "投票详情", "人工结论", "是否入选", "人工备注", "人工保护字段", "原始链接", "数据状态"],
+  escapes: ["ID", "名称", "主题名称", "子分类", "特征标签", "区域", "详细地址", "单人价格", "六人预计总价", "恐怖程度", "难度", "玩法类型", "场地规模", "房间数量", "推荐人数", "最少人数", "最多人数", "六人独立开场", "时长", "NPC/真人互动", "体力消耗", "换装", "营业时间", "预约要求", "取消政策", "停车", "预订状态", "优点", "缺点", "推荐分", "资料完整度", "缺失信息", "证据摘要", "想去票", "可以票", "不考虑票", "投票详情", "人工结论", "是否入选", "人工备注", "人工保护字段", "原始链接", "数据状态"],
+  leisure: ["ID", "名称", "子分类", "特征标签", "区域", "详细地址", "人均/套餐价格", "六人预计总价", "包含设施", "套餐内容", "营业时间", "能否过夜", "是否含餐", "休息区域", "独立房间", "男女分区", "适合人数", "使用限制", "环境特点", "停车", "预约要求", "取消政策", "预订状态", "优点", "缺点", "推荐分", "资料完整度", "缺失信息", "证据摘要", "想去票", "可以票", "不考虑票", "投票详情", "人工结论", "是否入选", "人工备注", "人工保护字段", "原始链接", "数据状态"],
+  attractions: ["ID", "名称", "子分类", "特征标签", "区域", "详细地址", "票价", "票价说明", "营业时间", "建议时长", "室内/室外", "天气影响", "预约要求", "取消政策", "停车", "预订状态", "核心看点", "注意事项", "推荐分", "资料完整度", "缺失信息", "证据摘要", "想去票", "可以票", "不考虑票", "投票详情", "人工结论", "是否入选", "人工备注", "人工保护字段", "原始链接", "数据状态"],
+  guides: ["ID", "标题", "子分类", "特征标签", "涉及区域", "AI摘要", "避坑信息", "已提取信息", "缺失信息", "资料完整度", "证据摘要", "想去票", "可以票", "不考虑票", "投票详情", "人工结论", "是否入选", "人工备注", "人工保护字段", "原始链接", "数据状态"],
   itinerary: ["日期", "开始时间", "结束时间", "类型", "地点", "活动安排", "详细地址", "交通", "预计费用/人", "预订状态", "注意事项", "来源ID", "来源链接"],
   reservations: ["ID", "待办事项", "类型", "计划时间", "当前状态", "负责人", "完成期限", "核对说明"],
   settings: ["设置项", "当前内容", "说明"],
@@ -708,8 +861,10 @@ const sheetDescriptions = {
   "处理报告": "快速查看哪些链接已成功整理、哪些未整理，以及缺失了什么。",
   "候选决策台": "优先在这里筛选：比较价格、位置、核心规格和缺失项；黄色“人工结论 / 是否入选 / 人工备注”可直接修改。",
   "住宿候选": "民宿完整明细：价格、位置、户型、床位、烧烤、费用和取消政策；黄色列可直接修改。",
-  "活动候选": "密室和景点完整明细：人数、价格、时长、难度、预约与取消政策；黄色列可直接修改。",
-  "餐饮候选": "餐厅完整明细：人均、位置、营业时间、适合安排和预约要求；黄色列可直接修改。",
+  "美食餐饮": "按烧烤、火锅、炒菜、早茶等分类；比较人均、六人总价、包间、排队和招牌菜。",
+  "密室候选": "按主题和玩法分类；比较微恐/中恐、难度、规模、人数、价格、NPC 和预约规则。",
+  "室内休闲": "按汗蒸、桑拿、洗浴、温泉等分类；比较套餐、设施、过夜、餐食和使用限制。",
+  "景点户外": "园林、博物馆、历史街区和户外项目；当前优先确认具体地点、票价、开放时间与天气影响。",
   "攻略文章": "攻略完整明细：摘要、避坑、证据、缺失信息和团队意见；黄色列可直接修改。",
   "两日行程": "包含周五晚抵达，以及周六、周日两天的初版安排。",
   "预订清单": "所有需要团队确认或下单的事项；网站不会代替你付款。",
@@ -748,10 +903,14 @@ function candidateQuality(place, link) {
   let checks;
   if (place.category === "住宿") {
     checks = [["详细地址", d.address], ["价格", place.price ?? d.twoNightTotal], ["6 人容量", d.capacity], ["户型", d.roomType], ["房间", d.rooms], ["床位 / 床型", hasUsefulFact(d.beds) ? d.beds : d.bedTypes], ["卫浴", d.bathrooms], ["烧烤", d.barbecue], ["取消政策", d.cancellationPolicy]];
-  } else if (["活动", "景点"].includes(place.category)) {
-    checks = [["详细地址", d.address], ["价格", place.price], ["适合人数", d.capacity], ["时长", place.duration], ["营业时间", d.openingHours], ["预约要求", d.reservation], ["取消政策", d.cancellationPolicy]];
   } else if (place.category === "餐饮") {
-    checks = [["详细地址", d.address], ["人均价格", place.price], ["营业时间", d.openingHours], ["预约要求", d.reservation], ["适合安排", d.usage]];
+    checks = [["子分类", place.subCategory], ["详细地址", d.address], ["人均价格", place.price], ["招牌菜", d.signatureDishes], ["六人适合度", d.groupSuitability], ["营业时间", d.openingHours], ["预约要求", d.reservation]];
+  } else if (place.category === "密室") {
+    checks = [["主题名称", d.themeName], ["详细地址", d.address], ["单人价格", place.price], ["恐怖程度", d.horrorLevel], ["难度", d.difficulty], ["场地规模", d.venueSize], ["适合人数", d.capacity], ["六人独立开场", d.sixPersonSession], ["时长", place.duration], ["预约要求", d.reservation]];
+  } else if (place.category === "休闲娱乐") {
+    checks = [["子分类", place.subCategory], ["详细地址", d.address], ["价格", place.price], ["包含设施", d.leisureFacilities], ["营业时间", d.openingHours], ["能否过夜", d.overnight], ["适合人数", d.capacity], ["使用限制", d.serviceRestrictions]];
+  } else if (place.category === "景点") {
+    checks = [["子分类", place.subCategory], ["详细地址", d.address], ["票价", hasUsefulFact(d.ticketInfo) ? d.ticketInfo : place.price], ["开放时间", d.openingHours], ["建议时长", hasUsefulFact(d.recommendedDuration) ? d.recommendedDuration : place.duration], ["预约要求", d.reservation], ["天气影响", d.weatherImpact]];
   } else {
     checks = [["涉及区域", place.area], ["摘要", link?.summary], ["主要亮点", place.pros?.[0]], ["主要风险", place.cons?.[0]]];
   }
@@ -762,6 +921,8 @@ function candidateQuality(place, link) {
 
 function placePriceSummary(place) {
   if (place.category === "住宿" && hasUsefulFact(place.details?.twoNightTotal)) return String(place.details.twoNightTotal);
+  if (["餐饮", "密室", "休闲娱乐"].includes(place.category) && hasUsefulFact(place.details?.sixPersonTotal)) return String(place.details.sixPersonTotal);
+  if (place.category === "景点" && hasUsefulFact(place.details?.ticketInfo)) return String(place.details.ticketInfo);
   if (Number.isFinite(place.price)) return `¥${place.price}`;
   return place.priceLabel || "待核实";
 }
@@ -770,8 +931,10 @@ function placeCoreSpec(place) {
   const d = place.details || defaultDetails;
   let parts;
   if (place.category === "住宿") parts = [d.capacity, d.roomType, d.rooms, d.beds, `烧烤：${d.barbecue}`];
-  else if (["活动", "景点"].includes(place.category)) parts = [d.capacity, place.duration, d.difficulty, d.horrorLevel];
-  else if (place.category === "餐饮") parts = [d.usage, d.openingHours, d.reservation];
+  else if (place.category === "餐饮") parts = [place.subCategory, d.signatureDishes, d.privateRoom, d.groupSuitability];
+  else if (place.category === "密室") parts = [d.horrorLevel, d.difficulty, d.venueSize, d.sixPersonSession];
+  else if (place.category === "休闲娱乐") parts = [place.subCategory, d.leisureFacilities, d.overnight, d.includedMeals];
+  else if (place.category === "景点") parts = [place.subCategory, d.recommendedDuration || place.duration, d.indoorOutdoor, d.weatherImpact];
   else parts = place.tags || [];
   const useful = parts.filter(hasUsefulFact).slice(0, 4);
   return useful.length ? useful.join("；") : "关键规格待核实";
@@ -856,8 +1019,19 @@ function styleCandidateDecisions(sheet, sheetHeaders, rowCount) {
   }
 }
 
+function styleEditableFields(sheet, sheetHeaders, rowCount, editableHeaders) {
+  const columns = editableHeaders.map((header) => sheetHeaders.indexOf(header) + 1).filter(Boolean);
+  for (let rowNumber = 4; rowNumber < 4 + rowCount; rowNumber += 1) {
+    for (const column of columns) {
+      const cell = sheet.getCell(rowNumber, column);
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF9E8" } };
+      cell.font = { name: "PingFang SC", color: { argb: "5F553E" }, size: 9 };
+    }
+  }
+}
+
 function formatCandidateColumns(sheet, sheetHeaders, rowCount) {
-  for (const header of ["每晚价格", "价格", "人均价格"]) {
+  for (const header of ["每晚价格", "价格", "人均价格", "单人价格", "人均/套餐价格", "票价"]) {
     const column = sheetHeaders.indexOf(header) + 1;
     if (column) sheet.getColumn(column).numFmt = "¥#,##0";
   }
@@ -1055,19 +1229,19 @@ async function syncToExcel(state) {
       const quality = candidateQuality(item, link);
       const missing = [...new Set([...(link?.missingFields || []), ...quality.missing])];
       const [support, okay, reject] = placeVoteColumns(item);
-      return [item.id, item.category, item.name, item.area, placePriceSummary(item), placeCoreSpec(item), item.pros[0] || "等待整理", item.cons[0] || "等待核实", quality.ratio, missing.join("；"), item.score, support, okay, reject, item.decisionStatus || "待比较", item.selected ? "是" : "否", item.manualNote || "", item.sourceUrl];
+      return [item.id, item.category, item.subCategory, item.name, item.area, placePriceSummary(item), placeCoreSpec(item), item.featureTags.join("；"), item.pros[0] || "等待整理", item.cons[0] || "等待核实", quality.ratio, missing.join("；"), item.score, support, okay, reject, item.decisionStatus || "待比较", item.selected ? "是" : "否", item.manualNote || "", manualOverrideSummary(item), item.sourceUrl];
     }), headers.decisions.length);
     styleCandidateDecisions(decisionSheet, headers.decisions, decisionPlaces.length);
     formatCandidateColumns(decisionSheet, headers.decisions, decisionPlaces.length);
-    [20, 10, 24, 18, 16, 30, 24, 24, 13, 28, 12, 10, 10, 10, 12, 10, 28, 36]
+    [20, 10, 16, 24, 18, 16, 30, 24, 24, 24, 13, 28, 12, 10, 10, 10, 12, 10, 28, 22, 36]
       .forEach((width, index) => { decisionSheet.getColumn(index + 1).width = width; });
     decisionSheet.views = [{ showGridLines: false, state: "frozen", xSplit: 6, ySplit: 3 }];
 
     const linkSheet = ensureSheet(workbook, "链接汇总", headers.links);
-    replaceRows(linkSheet, state.links.map((item) => [item.id, item.createdAt, item.submitter, item.url, item.title, item.category, item.readStatus, item.organizedStatus, item.status, item.factsFound.join("；"), item.missingFields.join("；"), item.summary, item.model, item.error || "", item.note]), headers.links.length);
+    replaceRows(linkSheet, state.links.map((item) => [item.id, item.createdAt, item.submitter, item.url, item.title, item.category, item.subCategory || "等待识别", item.readStatus, item.organizedStatus, item.status, item.factsFound.join("；"), item.missingFields.join("；"), item.summary, item.model, item.error || "", item.note]), headers.links.length);
 
     const reportSheet = ensureSheet(workbook, "处理报告", headers.report);
-    replaceRows(reportSheet, state.links.map((item) => [item.id, item.submitter, item.title || "标题未读取", item.category, item.readStatus, item.organizedStatus, item.resultNote, item.factsFound.join("；"), item.missingFields.join("；"), item.error || "", item.url, item.updatedAt]), headers.report.length);
+    replaceRows(reportSheet, state.links.map((item) => [item.id, item.submitter, item.title || "标题未读取", item.category, item.subCategory || "等待识别", item.readStatus, item.organizedStatus, item.resultNote, item.factsFound.join("；"), item.missingFields.join("；"), item.error || "", item.url, item.updatedAt]), headers.report.length);
 
     const stays = state.places.filter((item) => item.category === "住宿");
     const staySheet = ensureSheet(workbook, "住宿候选", headers.stays);
@@ -1076,40 +1250,72 @@ async function syncToExcel(state) {
       const link = state.links.find((candidate) => candidate.id === item.sourceId);
       const quality = candidateQuality(item, link);
       const missing = [...new Set([...(link?.missingFields || []), ...quality.missing])].join("；");
-      return [item.id, item.name, item.area, d.address, d.locationHighlights, d.distanceToCore, item.price, d.twoNightTotal, d.extraFees, d.deposit, d.capacity, d.roomType, d.rooms, d.beds, d.bedTypes, d.bathrooms, d.environment, d.entireRental, d.kitchen, d.barbecue, d.bbqEquipment, d.breakfast, d.parking, d.transport, d.checkIn, d.checkOut, d.cancellationPolicy, d.reservation, d.bookingStatus, item.pros.join("；"), item.cons.join("；"), item.score, quality.ratio, missing, d.evidence, ...placeVoteColumns(item), item.decisionStatus || "待比较", item.selected ? "是" : "否", item.manualNote || "", item.sourceUrl, item.dataStatus];
+      return [item.id, item.name, item.subCategory, item.featureTags.join("；"), item.area, d.address, d.locationHighlights, d.distanceToCore, item.price, d.twoNightTotal, d.extraFees, d.deposit, d.capacity, d.roomType, d.rooms, d.beds, d.bedTypes, d.bathrooms, d.environment, d.entireRental, d.kitchen, d.barbecue, d.bbqEquipment, d.breakfast, d.parking, d.transport, d.checkIn, d.checkOut, d.cancellationPolicy, d.reservation, d.bookingStatus, item.pros.join("；"), item.cons.join("；"), item.score, quality.ratio, missing, d.evidence, ...placeVoteColumns(item), item.decisionStatus || "待比较", item.selected ? "是" : "否", item.manualNote || "", manualOverrideSummary(item), item.sourceUrl, item.dataStatus];
     }), headers.stays.length);
+    styleEditableFields(staySheet, headers.stays, stays.length, ["名称", "子分类", "特征标签", "区域", "详细地址", "每晚价格", "两晚总价", "适合人数", "户型", "房间", "床位", "床型", "卫浴", "能否烧烤", "烧烤设备/费用", "取消政策"]);
     styleCandidateDecisions(staySheet, headers.stays, stays.length);
     formatCandidateColumns(staySheet, headers.stays, stays.length);
 
-    const activities = state.places.filter((item) => ["活动", "景点"].includes(item.category));
-    const activitySheet = ensureSheet(workbook, "活动候选", headers.activities);
-    replaceRows(activitySheet, activities.map((item) => {
-      const link = state.links.find((candidate) => candidate.id === item.sourceId);
-      const quality = candidateQuality(item, link);
-      const missing = [...new Set([...(link?.missingFields || []), ...quality.missing])].join("；");
-      return [item.id, item.name, item.category, item.area, item.details.address, item.price, item.details.capacity, item.duration, item.details.difficulty, item.details.horrorLevel, item.details.openingHours, item.details.reservation, item.details.cancellationPolicy, item.details.bookingStatus, item.pros.join("；"), item.cons.join("；"), item.score, quality.ratio, missing, item.details.evidence, ...placeVoteColumns(item), item.decisionStatus || "待比较", item.selected ? "是" : "否", item.manualNote || "", item.sourceUrl, item.dataStatus];
-    }), headers.activities.length);
-    styleCandidateDecisions(activitySheet, headers.activities, activities.length);
-    formatCandidateColumns(activitySheet, headers.activities, activities.length);
-
     const food = state.places.filter((item) => item.category === "餐饮");
-    const foodSheet = ensureSheet(workbook, "餐饮候选", headers.food);
+    const foodSheet = ensureSheet(workbook, "美食餐饮", headers.food);
     replaceRows(foodSheet, food.map((item) => {
       const link = state.links.find((candidate) => candidate.id === item.sourceId);
       const quality = candidateQuality(item, link);
       const missing = [...new Set([...(link?.missingFields || []), ...quality.missing])].join("；");
-      return [item.id, item.name, "餐饮", item.details.usage, item.area, item.details.address, item.price, item.details.openingHours, item.details.reservation, item.details.cancellationPolicy, item.details.bookingStatus, item.tags.join("；"), item.pros.join("；"), item.cons.join("；"), item.score, quality.ratio, missing, item.details.evidence, ...placeVoteColumns(item), item.decisionStatus || "待比较", item.selected ? "是" : "否", item.manualNote || "", item.sourceUrl, item.dataStatus];
+      const d = item.details;
+      return [item.id, item.name, item.subCategory, item.featureTags.join("；"), d.usage, item.area, d.address, item.price, d.sixPersonTotal, d.signatureDishes, d.privateRoom, d.groupSuitability, d.queueInfo, d.openingHours, d.reservation, d.cancellationPolicy, d.parking, d.environment, d.bookingStatus, item.pros.join("；"), item.cons.join("；"), item.score, quality.ratio, missing, d.evidence, ...placeVoteColumns(item), item.decisionStatus || "待比较", item.selected ? "是" : "否", item.manualNote || "", manualOverrideSummary(item), item.sourceUrl, item.dataStatus];
     }), headers.food.length);
+    styleEditableFields(foodSheet, headers.food, food.length, ["名称", "子分类", "特征标签", "适合安排", "区域", "详细地址", "人均价格", "六人预计总价", "招牌菜", "包间", "六人适合度", "排队情况", "营业时间", "预约要求"]);
     styleCandidateDecisions(foodSheet, headers.food, food.length);
     formatCandidateColumns(foodSheet, headers.food, food.length);
+
+    const escapes = state.places.filter((item) => item.category === "密室");
+    const escapeSheet = ensureSheet(workbook, "密室候选", headers.escapes);
+    replaceRows(escapeSheet, escapes.map((item) => {
+      const link = state.links.find((candidate) => candidate.id === item.sourceId);
+      const quality = candidateQuality(item, link);
+      const missing = [...new Set([...(link?.missingFields || []), ...quality.missing])].join("；");
+      const d = item.details;
+      return [item.id, item.name, d.themeName, item.subCategory, item.featureTags.join("；"), item.area, d.address, item.price, d.sixPersonTotal, d.horrorLevel, d.difficulty, d.escapeStyle, d.venueSize, d.roomCount, d.capacity, d.minPlayers, d.maxPlayers, d.sixPersonSession, item.duration, d.npcInteraction, d.physicalIntensity, d.costume, d.openingHours, d.reservation, d.cancellationPolicy, d.parking, d.bookingStatus, item.pros.join("；"), item.cons.join("；"), item.score, quality.ratio, missing, d.evidence, ...placeVoteColumns(item), item.decisionStatus || "待比较", item.selected ? "是" : "否", item.manualNote || "", manualOverrideSummary(item), item.sourceUrl, item.dataStatus];
+    }), headers.escapes.length);
+    styleEditableFields(escapeSheet, headers.escapes, escapes.length, ["名称", "主题名称", "子分类", "特征标签", "区域", "详细地址", "单人价格", "六人预计总价", "恐怖程度", "难度", "玩法类型", "场地规模", "房间数量", "推荐人数", "六人独立开场", "时长", "NPC/真人互动"]);
+    styleCandidateDecisions(escapeSheet, headers.escapes, escapes.length);
+    formatCandidateColumns(escapeSheet, headers.escapes, escapes.length);
+
+    const leisure = state.places.filter((item) => item.category === "休闲娱乐");
+    const leisureSheet = ensureSheet(workbook, "室内休闲", headers.leisure);
+    replaceRows(leisureSheet, leisure.map((item) => {
+      const link = state.links.find((candidate) => candidate.id === item.sourceId);
+      const quality = candidateQuality(item, link);
+      const missing = [...new Set([...(link?.missingFields || []), ...quality.missing])].join("；");
+      const d = item.details;
+      return [item.id, item.name, item.subCategory, item.featureTags.join("；"), item.area, d.address, item.price, d.sixPersonTotal, d.leisureFacilities, d.packageInfo, d.openingHours, d.overnight, d.includedMeals, d.restArea, d.privateRoom, d.genderArrangement, d.capacity, d.serviceRestrictions, d.environment, d.parking, d.reservation, d.cancellationPolicy, d.bookingStatus, item.pros.join("；"), item.cons.join("；"), item.score, quality.ratio, missing, d.evidence, ...placeVoteColumns(item), item.decisionStatus || "待比较", item.selected ? "是" : "否", item.manualNote || "", manualOverrideSummary(item), item.sourceUrl, item.dataStatus];
+    }), headers.leisure.length);
+    styleEditableFields(leisureSheet, headers.leisure, leisure.length, ["名称", "子分类", "特征标签", "区域", "详细地址", "人均/套餐价格", "六人预计总价", "包含设施", "套餐内容", "营业时间", "能否过夜", "是否含餐", "休息区域", "独立房间", "男女分区", "适合人数", "使用限制"]);
+    styleCandidateDecisions(leisureSheet, headers.leisure, leisure.length);
+    formatCandidateColumns(leisureSheet, headers.leisure, leisure.length);
+
+    const attractions = state.places.filter((item) => item.category === "景点");
+    const attractionSheet = ensureSheet(workbook, "景点户外", headers.attractions);
+    replaceRows(attractionSheet, attractions.map((item) => {
+      const link = state.links.find((candidate) => candidate.id === item.sourceId);
+      const quality = candidateQuality(item, link);
+      const missing = [...new Set([...(link?.missingFields || []), ...quality.missing])].join("；");
+      const d = item.details;
+      return [item.id, item.name, item.subCategory, item.featureTags.join("；"), item.area, d.address, item.price, d.ticketInfo, d.openingHours, d.recommendedDuration || item.duration, d.indoorOutdoor, d.weatherImpact, d.reservation, d.cancellationPolicy, d.parking, d.bookingStatus, item.pros.join("；"), item.cons.join("；"), item.score, quality.ratio, missing, d.evidence, ...placeVoteColumns(item), item.decisionStatus || "待比较", item.selected ? "是" : "否", item.manualNote || "", manualOverrideSummary(item), item.sourceUrl, item.dataStatus];
+    }), headers.attractions.length);
+    styleEditableFields(attractionSheet, headers.attractions, attractions.length, ["名称", "子分类", "特征标签", "区域", "详细地址", "票价", "票价说明", "营业时间", "建议时长", "室内/室外", "天气影响", "预约要求"]);
+    styleCandidateDecisions(attractionSheet, headers.attractions, attractions.length);
+    formatCandidateColumns(attractionSheet, headers.attractions, attractions.length);
 
     const guides = state.places.filter((item) => item.category === "攻略");
     const guideSheet = ensureSheet(workbook, "攻略文章", headers.guides);
     replaceRows(guideSheet, guides.map((item) => {
       const link = state.links.find((candidate) => candidate.id === item.sourceId);
       const quality = candidateQuality(item, link);
-      return [item.id, item.name, item.area, link?.summary || item.pros.join("；"), item.cons.join("；"), item.details.transport, link?.factsFound?.join("；") || "", link?.missingFields?.join("；") || quality.missing.join("；"), quality.ratio, item.details.evidence, ...placeVoteColumns(item), item.decisionStatus || "待比较", item.selected ? "是" : "否", item.manualNote || "", item.sourceUrl, item.dataStatus];
+      return [item.id, item.name, item.subCategory, item.featureTags.join("；"), item.area, link?.summary || item.pros.join("；"), item.cons.join("；"), link?.factsFound?.join("；") || "", link?.missingFields?.join("；") || quality.missing.join("；"), quality.ratio, item.details.evidence, ...placeVoteColumns(item), item.decisionStatus || "待比较", item.selected ? "是" : "否", item.manualNote || "", manualOverrideSummary(item), item.sourceUrl, item.dataStatus];
     }), headers.guides.length);
+    styleEditableFields(guideSheet, headers.guides, guides.length, ["标题", "子分类", "特征标签", "涉及区域"]);
     styleCandidateDecisions(guideSheet, headers.guides, guides.length);
     formatCandidateColumns(guideSheet, headers.guides, guides.length);
 
@@ -1135,7 +1341,8 @@ async function syncToExcel(state) {
       ["住宿预算", state.tripProfile.accommodationBudget, "确认日期后再定预算"],
       ["周六晚安排", state.tripProfile.barbecue, "订房前必须确认允许烧烤"],
       ["早餐", state.tripProfile.breakfasts.join("；"), "两顿都纳入预订清单"],
-      ["团队活动", state.tripProfile.activity, "密室或同类活动"],
+      ["分类体系", "住宿 / 餐饮 / 密室 / 休闲娱乐 / 景点 / 攻略", "每类使用不同的提取字段与完整度标准"],
+      ["团队活动", state.tripProfile.activity, "密室、汗蒸、桑拿、洗浴或同类活动"],
       ["AI 分析模型", providerLabel(), "所有 AI 结论仍需人工核实"],
       ["访问方式", "本地后台 + 密码保护的公网网址", "朋友无需账号、无需同一 Wi-Fi"],
     ], headers.settings.length);
@@ -1149,6 +1356,7 @@ async function syncToExcel(state) {
       ["已整理链接", completedLinks, "已形成候选资料并写入分类表"],
       ["未整理链接", unorganizedLinks, "请在处理报告查看原因并补充信息"],
       ["候选资料", state.places.length, "含住宿、活动、餐饮、景点和攻略"],
+      ["分类明细", supportedCategories.map((category) => `${category} ${state.places.filter((item) => item.category === category).length}`).join(" · "), "查看对应分类工作表"],
       ["已入选候选", state.places.filter((item) => item.selected).length, "用于当前行程草案"],
       ["待确认预订", state.reservations.filter((item) => !/已完成|已预订/.test(item.status)).length, "付款前由团队最终确认"],
       ["当前重点", "补充真实民宿、两顿早餐和密室链接", "先核对住宿能否烧烤"],
@@ -1301,11 +1509,13 @@ async function importFromExcel() {
   const state = await readState();
   const hasFinalPlanHome = importFinalPlanHome(workbook, state);
   const configs = [
-    ["住宿候选", "住宿", "每晚价格", { address: "详细地址", locationHighlights: "地段特点", distanceToCore: "核心景点距离", capacity: "适合人数", roomType: "户型", rooms: "房间", beds: "床位", bedTypes: "床型", bathrooms: "卫浴", twoNightTotal: "两晚总价", extraFees: "额外费用", deposit: "押金", environment: "环境特点", entireRental: "是否整租", kitchen: "厨房", barbecue: "能否烧烤", bbqEquipment: "烧烤设备/费用", breakfast: "早餐", parking: "停车", transport: "交通", checkIn: "入住时间", checkOut: "退房时间", cancellationPolicy: "取消政策", reservation: "预订要求", bookingStatus: "预订状态", evidence: "证据摘要" }],
-    ["活动候选", null, "价格", { address: "详细地址", capacity: "适合人数", difficulty: "难度", horrorLevel: "恐怖程度", openingHours: "营业时间", reservation: "预约要求", cancellationPolicy: "取消政策", bookingStatus: "预订状态", evidence: "证据摘要" }],
-    ["餐饮候选", "餐饮", "人均价格", { usage: "适合安排", address: "详细地址", openingHours: "营业时间", reservation: "预约要求", cancellationPolicy: "取消政策", bookingStatus: "预订状态", evidence: "证据摘要" }],
+    { sheetName: "住宿候选", category: "住宿", priceColumn: "每晚价格", detailColumns: { address: "详细地址", locationHighlights: "地段特点", distanceToCore: "核心景点距离", capacity: "适合人数", roomType: "户型", rooms: "房间", beds: "床位", bedTypes: "床型", bathrooms: "卫浴", twoNightTotal: "两晚总价", extraFees: "额外费用", deposit: "押金", environment: "环境特点", entireRental: "是否整租", kitchen: "厨房", barbecue: "能否烧烤", bbqEquipment: "烧烤设备/费用", breakfast: "早餐", parking: "停车", transport: "交通", checkIn: "入住时间", checkOut: "退房时间", cancellationPolicy: "取消政策", reservation: "预订要求", bookingStatus: "预订状态", evidence: "证据摘要" } },
+    { sheetName: "美食餐饮", category: "餐饮", priceColumn: "人均价格", detailColumns: { usage: "适合安排", address: "详细地址", sixPersonTotal: "六人预计总价", signatureDishes: "招牌菜", privateRoom: "包间", groupSuitability: "六人适合度", queueInfo: "排队情况", openingHours: "营业时间", reservation: "预约要求", cancellationPolicy: "取消政策", parking: "停车", environment: "环境特点", bookingStatus: "预订状态", evidence: "证据摘要" } },
+    { sheetName: "密室候选", category: "密室", priceColumn: "单人价格", durationColumn: "时长", detailColumns: { themeName: "主题名称", address: "详细地址", sixPersonTotal: "六人预计总价", horrorLevel: "恐怖程度", difficulty: "难度", escapeStyle: "玩法类型", venueSize: "场地规模", roomCount: "房间数量", capacity: "推荐人数", minPlayers: "最少人数", maxPlayers: "最多人数", sixPersonSession: "六人独立开场", npcInteraction: "NPC/真人互动", physicalIntensity: "体力消耗", costume: "换装", openingHours: "营业时间", reservation: "预约要求", cancellationPolicy: "取消政策", parking: "停车", bookingStatus: "预订状态", evidence: "证据摘要" } },
+    { sheetName: "室内休闲", category: "休闲娱乐", priceColumn: "人均/套餐价格", detailColumns: { address: "详细地址", sixPersonTotal: "六人预计总价", leisureFacilities: "包含设施", packageInfo: "套餐内容", openingHours: "营业时间", overnight: "能否过夜", includedMeals: "是否含餐", restArea: "休息区域", privateRoom: "独立房间", genderArrangement: "男女分区", capacity: "适合人数", serviceRestrictions: "使用限制", environment: "环境特点", parking: "停车", reservation: "预约要求", cancellationPolicy: "取消政策", bookingStatus: "预订状态", evidence: "证据摘要" } },
+    { sheetName: "景点户外", category: "景点", priceColumn: "票价", detailColumns: { address: "详细地址", ticketInfo: "票价说明", openingHours: "营业时间", recommendedDuration: "建议时长", indoorOutdoor: "室内/室外", weatherImpact: "天气影响", reservation: "预约要求", cancellationPolicy: "取消政策", parking: "停车", bookingStatus: "预订状态", evidence: "证据摘要" } },
   ];
-  for (const [sheetName, fixedCategory, priceColumn, detailColumns] of configs) {
+  for (const { sheetName, category, priceColumn, durationColumn, detailColumns } of configs) {
     const sheet = workbook.getWorksheet(sheetName);
     if (!sheet) continue;
     const map = headerIndex(sheet);
@@ -1316,26 +1526,50 @@ async function importFromExcel() {
       const index = state.places.findIndex((item) => item.id === id);
       if (index < 0) return;
       const current = state.places[index];
-      const numericPrice = Number(value(row, map, priceColumn));
+      const rawPrice = value(row, map, priceColumn);
+      const numericPrice = rawPrice === "" || rawPrice === null || rawPrice === undefined ? Number.NaN : Number(rawPrice);
       const details = { ...defaultDetails, ...(current.details || {}) };
+      const manualOverrides = { ...(current.manualOverrides || {}) };
       for (const [key, columnName] of Object.entries(detailColumns)) {
         const edited = String(value(row, map, columnName) || "").trim();
-        if (edited) details[key] = edited;
+        if (!edited) continue;
+        rememberManualOverride(manualOverrides, `details.${key}`, edited, current.details?.[key]);
+        details[key] = edited;
       }
+      const editedName = String(value(row, map, "名称") || current.name).trim();
+      const editedArea = String(value(row, map, "区域") || current.area).trim();
+      const editedSubCategory = String(value(row, map, "子分类") || current.subCategory).trim();
+      const editedFeatureTags = String(value(row, map, "特征标签") || current.featureTags.join("；")).split(/[；;]/).map((item) => item.trim()).filter(Boolean);
+      const editedPros = String(value(row, map, "优点") || value(row, map, "核心看点") || current.pros.join("；")).split(/[；;]/).map((item) => item.trim()).filter(Boolean);
+      const editedCons = String(value(row, map, "缺点") || value(row, map, "注意事项") || current.cons.join("；")).split(/[；;]/).map((item) => item.trim()).filter(Boolean);
+      const editedDuration = durationColumn ? String(value(row, map, durationColumn) || current.duration).trim() : current.duration;
+      const nextPrice = Number.isFinite(numericPrice) && numericPrice >= 0 ? numericPrice : current.price;
+      rememberManualOverride(manualOverrides, "name", editedName, current.name);
+      rememberManualOverride(manualOverrides, "area", editedArea, current.area);
+      rememberManualOverride(manualOverrides, "subCategory", editedSubCategory, current.subCategory);
+      rememberManualOverride(manualOverrides, "featureTags", editedFeatureTags, current.featureTags);
+      rememberManualOverride(manualOverrides, "pros", editedPros, current.pros);
+      rememberManualOverride(manualOverrides, "cons", editedCons, current.cons);
+      rememberManualOverride(manualOverrides, "duration", editedDuration, current.duration);
+      rememberManualOverride(manualOverrides, "price", nextPrice, current.price);
       state.places[index] = {
         ...current,
-        name: String(value(row, map, sheetName === "餐饮候选" ? "名称" : "名称") || current.name),
-        category: fixedCategory || String(value(row, map, "活动类型") || current.category),
-        area: String(value(row, map, "区域") || current.area),
-        price: Number.isFinite(numericPrice) && numericPrice > 0 ? numericPrice : current.price,
-        priceLabel: Number.isFinite(numericPrice) && numericPrice > 0 ? `参考 ¥${numericPrice}` : current.priceLabel,
+        name: editedName,
+        category,
+        subCategory: editedSubCategory,
+        featureTags: editedFeatureTags,
+        area: editedArea,
+        price: nextPrice,
+        priceLabel: Number.isFinite(nextPrice) ? `参考 ¥${nextPrice}` : current.priceLabel,
+        duration: editedDuration,
         score: Number(value(row, map, "推荐分")) || current.score,
         selected: String(value(row, map, "是否入选")).trim() === "是",
         decisionStatus: String(value(row, map, "人工结论") || current.decisionStatus || "待比较"),
         manualNote: String(value(row, map, "人工备注") || ""),
-        pros: String(value(row, map, "优点") || current.pros.join("；")).split(/[；;]/).filter(Boolean),
-        cons: String(value(row, map, "缺点") || current.cons.join("；")).split(/[；;]/).filter(Boolean),
+        pros: editedPros,
+        cons: editedCons,
         dataStatus: String(value(row, map, "数据状态") || current.dataStatus),
+        manualOverrides,
         details,
       };
     });
@@ -1350,11 +1584,26 @@ async function importFromExcel() {
       if (!id) return;
       const index = state.places.findIndex((item) => item.id === id);
       if (index < 0) return;
+      const current = state.places[index];
+      const manualOverrides = { ...(current.manualOverrides || {}) };
+      const editedName = String(value(row, map, "标题") || current.name).trim();
+      const editedArea = String(value(row, map, "涉及区域") || current.area).trim();
+      const editedSubCategory = String(value(row, map, "子分类") || current.subCategory).trim();
+      const editedFeatureTags = String(value(row, map, "特征标签") || current.featureTags.join("；")).split(/[；;]/).map((item) => item.trim()).filter(Boolean);
+      rememberManualOverride(manualOverrides, "name", editedName, current.name);
+      rememberManualOverride(manualOverrides, "area", editedArea, current.area);
+      rememberManualOverride(manualOverrides, "subCategory", editedSubCategory, current.subCategory);
+      rememberManualOverride(manualOverrides, "featureTags", editedFeatureTags, current.featureTags);
       state.places[index] = {
-        ...state.places[index],
+        ...current,
+        name: editedName,
+        area: editedArea,
+        subCategory: editedSubCategory,
+        featureTags: editedFeatureTags,
         selected: String(value(row, map, "是否入选")).trim() === "是",
-        decisionStatus: String(value(row, map, "人工结论") || state.places[index].decisionStatus || "待比较"),
+        decisionStatus: String(value(row, map, "人工结论") || current.decisionStatus || "待比较"),
         manualNote: String(value(row, map, "人工备注") || ""),
+        manualOverrides,
       };
     });
   }

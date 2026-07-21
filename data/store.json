@@ -32,7 +32,8 @@
       "missingFields": [
         "价格或预约等动态信息仍需核实"
       ],
-      "resultNote": "已生成候选资料并写入 Excel"
+      "resultNote": "已生成候选资料并写入 Excel",
+      "subCategory": "美食攻略"
     },
     {
       "id": "link-df4b1ba42b06",
@@ -59,7 +60,8 @@
         "活动",
         "餐饮具体信息"
       ],
-      "resultNote": "已整理；仍有 3 项待核实"
+      "resultNote": "已整理；仍有 3 项待核实",
+      "subCategory": "综合攻略"
     },
     {
       "id": "seed-guide-001",
@@ -83,7 +85,8 @@
       "missingFields": [
         "价格或预约等动态信息仍需核实"
       ],
-      "resultNote": "已生成候选资料并写入 Excel"
+      "resultNote": "已生成候选资料并写入 Excel",
+      "subCategory": "行程攻略"
     }
   ],
   "places": [
@@ -144,11 +147,44 @@
         "horrorLevel": "待核实",
         "usage": "待分配",
         "cancellationPolicy": "待核实",
-        "evidence": "待核实"
+        "evidence": "待核实",
+        "cuisineType": "待核实",
+        "signatureDishes": "待核实",
+        "sixPersonTotal": "待核实",
+        "privateRoom": "待核实",
+        "queueInfo": "待核实",
+        "groupSuitability": "待核实",
+        "themeName": "待核实",
+        "escapeStyle": "待核实",
+        "venueSize": "待核实",
+        "roomCount": "待核实",
+        "minPlayers": "待核实",
+        "maxPlayers": "待核实",
+        "sixPersonSession": "待核实",
+        "npcInteraction": "待核实",
+        "physicalIntensity": "待核实",
+        "costume": "待核实",
+        "leisureFacilities": "待核实",
+        "packageInfo": "待核实",
+        "overnight": "待核实",
+        "includedMeals": "待核实",
+        "restArea": "待核实",
+        "genderArrangement": "待核实",
+        "serviceRestrictions": "待核实",
+        "attractionType": "待核实",
+        "indoorOutdoor": "待核实",
+        "weatherImpact": "待核实",
+        "ticketInfo": "待核实",
+        "recommendedDuration": "待核实"
       },
       "votes": {},
       "decisionStatus": "待比较",
-      "manualNote": ""
+      "manualNote": "",
+      "subCategory": "美食攻略",
+      "featureTags": [
+        "攻略"
+      ],
+      "manualOverrides": {}
     },
     {
       "id": "place-b34f514c-cc18-49a3-873b-8651853e07b9",
@@ -207,11 +243,44 @@
         "horrorLevel": "待核实",
         "usage": "待核实",
         "cancellationPolicy": "待核实",
-        "evidence": "待核实"
+        "evidence": "待核实",
+        "cuisineType": "待核实",
+        "signatureDishes": "待核实",
+        "sixPersonTotal": "待核实",
+        "privateRoom": "待核实",
+        "queueInfo": "待核实",
+        "groupSuitability": "待核实",
+        "themeName": "待核实",
+        "escapeStyle": "待核实",
+        "venueSize": "待核实",
+        "roomCount": "待核实",
+        "minPlayers": "待核实",
+        "maxPlayers": "待核实",
+        "sixPersonSession": "待核实",
+        "npcInteraction": "待核实",
+        "physicalIntensity": "待核实",
+        "costume": "待核实",
+        "leisureFacilities": "待核实",
+        "packageInfo": "待核实",
+        "overnight": "待核实",
+        "includedMeals": "待核实",
+        "restArea": "待核实",
+        "genderArrangement": "待核实",
+        "serviceRestrictions": "待核实",
+        "attractionType": "待核实",
+        "indoorOutdoor": "待核实",
+        "weatherImpact": "待核实",
+        "ticketInfo": "待核实",
+        "recommendedDuration": "待核实"
       },
       "votes": {},
       "decisionStatus": "待比较",
-      "manualNote": ""
+      "manualNote": "",
+      "subCategory": "综合攻略",
+      "featureTags": [
+        "攻略"
+      ],
+      "manualOverrides": {}
     },
     {
       "id": "place-001",
@@ -267,11 +336,44 @@
         "horrorLevel": "待核实",
         "usage": "待分配",
         "cancellationPolicy": "待核实",
-        "evidence": "待核实"
+        "evidence": "待核实",
+        "cuisineType": "待核实",
+        "signatureDishes": "待核实",
+        "sixPersonTotal": "待核实",
+        "privateRoom": "待核实",
+        "queueInfo": "待核实",
+        "groupSuitability": "待核实",
+        "themeName": "待核实",
+        "escapeStyle": "待核实",
+        "venueSize": "待核实",
+        "roomCount": "待核实",
+        "minPlayers": "待核实",
+        "maxPlayers": "待核实",
+        "sixPersonSession": "待核实",
+        "npcInteraction": "待核实",
+        "physicalIntensity": "待核实",
+        "costume": "待核实",
+        "leisureFacilities": "待核实",
+        "packageInfo": "待核实",
+        "overnight": "待核实",
+        "includedMeals": "待核实",
+        "restArea": "待核实",
+        "genderArrangement": "待核实",
+        "serviceRestrictions": "待核实",
+        "attractionType": "待核实",
+        "indoorOutdoor": "待核实",
+        "weatherImpact": "待核实",
+        "ticketInfo": "待核实",
+        "recommendedDuration": "待核实"
       },
       "votes": {},
       "decisionStatus": "拟定",
-      "manualNote": ""
+      "manualNote": "",
+      "subCategory": "园林景区",
+      "featureTags": [
+        "景点"
+      ],
+      "manualOverrides": {}
     },
     {
       "id": "place-002",
@@ -280,7 +382,7 @@
       "category": "景点",
       "area": "扬州老城",
       "price": 0,
-      "priceLabel": "街区免费",
+      "priceLabel": "参考 ¥0",
       "duration": "约 2 小时",
       "score": 4.3,
       "tags": [
@@ -327,11 +429,44 @@
         "horrorLevel": "待核实",
         "usage": "待分配",
         "cancellationPolicy": "待核实",
-        "evidence": "待核实"
+        "evidence": "待核实",
+        "cuisineType": "待核实",
+        "signatureDishes": "待核实",
+        "sixPersonTotal": "待核实",
+        "privateRoom": "待核实",
+        "queueInfo": "待核实",
+        "groupSuitability": "待核实",
+        "themeName": "待核实",
+        "escapeStyle": "待核实",
+        "venueSize": "待核实",
+        "roomCount": "待核实",
+        "minPlayers": "待核实",
+        "maxPlayers": "待核实",
+        "sixPersonSession": "待核实",
+        "npcInteraction": "待核实",
+        "physicalIntensity": "待核实",
+        "costume": "待核实",
+        "leisureFacilities": "待核实",
+        "packageInfo": "待核实",
+        "overnight": "待核实",
+        "includedMeals": "待核实",
+        "restArea": "待核实",
+        "genderArrangement": "待核实",
+        "serviceRestrictions": "待核实",
+        "attractionType": "待核实",
+        "indoorOutdoor": "待核实",
+        "weatherImpact": "待核实",
+        "ticketInfo": "待核实",
+        "recommendedDuration": "待核实"
       },
       "votes": {},
       "decisionStatus": "拟定",
-      "manualNote": ""
+      "manualNote": "",
+      "subCategory": "其他景点",
+      "featureTags": [
+        "景点"
+      ],
+      "manualOverrides": {}
     },
     {
       "id": "place-003",
@@ -387,11 +522,44 @@
         "horrorLevel": "待核实",
         "usage": "待分配",
         "cancellationPolicy": "待核实",
-        "evidence": "待核实"
+        "evidence": "待核实",
+        "cuisineType": "待核实",
+        "signatureDishes": "待核实",
+        "sixPersonTotal": "待核实",
+        "privateRoom": "待核实",
+        "queueInfo": "待核实",
+        "groupSuitability": "待核实",
+        "themeName": "待核实",
+        "escapeStyle": "待核实",
+        "venueSize": "待核实",
+        "roomCount": "待核实",
+        "minPlayers": "待核实",
+        "maxPlayers": "待核实",
+        "sixPersonSession": "待核实",
+        "npcInteraction": "待核实",
+        "physicalIntensity": "待核实",
+        "costume": "待核实",
+        "leisureFacilities": "待核实",
+        "packageInfo": "待核实",
+        "overnight": "待核实",
+        "includedMeals": "待核实",
+        "restArea": "待核实",
+        "genderArrangement": "待核实",
+        "serviceRestrictions": "待核实",
+        "attractionType": "待核实",
+        "indoorOutdoor": "待核实",
+        "weatherImpact": "待核实",
+        "ticketInfo": "待核实",
+        "recommendedDuration": "待核实"
       },
       "votes": {},
       "decisionStatus": "拟定",
-      "manualNote": ""
+      "manualNote": "",
+      "subCategory": "园林景区",
+      "featureTags": [
+        "景点"
+      ],
+      "manualOverrides": {}
     },
     {
       "id": "place-004",
@@ -400,7 +568,7 @@
       "category": "景点",
       "area": "运河三湾",
       "price": 0,
-      "priceLabel": "预约政策待核实",
+      "priceLabel": "参考 ¥0",
       "duration": "约 3 小时",
       "score": 4.7,
       "tags": [
@@ -447,11 +615,46 @@
         "horrorLevel": "待核实",
         "usage": "待分配",
         "cancellationPolicy": "待核实",
-        "evidence": "待核实"
+        "evidence": "待核实",
+        "cuisineType": "待核实",
+        "signatureDishes": "待核实",
+        "sixPersonTotal": "待核实",
+        "privateRoom": "待核实",
+        "queueInfo": "待核实",
+        "groupSuitability": "待核实",
+        "themeName": "待核实",
+        "escapeStyle": "待核实",
+        "venueSize": "待核实",
+        "roomCount": "待核实",
+        "minPlayers": "待核实",
+        "maxPlayers": "待核实",
+        "sixPersonSession": "待核实",
+        "npcInteraction": "待核实",
+        "physicalIntensity": "待核实",
+        "costume": "待核实",
+        "leisureFacilities": "待核实",
+        "packageInfo": "待核实",
+        "overnight": "待核实",
+        "includedMeals": "待核实",
+        "restArea": "待核实",
+        "genderArrangement": "待核实",
+        "serviceRestrictions": "待核实",
+        "attractionType": "待核实",
+        "indoorOutdoor": "待核实",
+        "weatherImpact": "待核实",
+        "ticketInfo": "待核实",
+        "recommendedDuration": "待核实"
       },
       "votes": {},
       "decisionStatus": "拟定",
-      "manualNote": ""
+      "manualNote": "",
+      "subCategory": "博物馆",
+      "featureTags": [
+        "景点",
+        "室内",
+        "需要预约"
+      ],
+      "manualOverrides": {}
     },
     {
       "id": "place-005",
@@ -507,11 +710,44 @@
         "horrorLevel": "待核实",
         "usage": "待分配",
         "cancellationPolicy": "待核实",
-        "evidence": "待核实"
+        "evidence": "待核实",
+        "cuisineType": "待核实",
+        "signatureDishes": "待核实",
+        "sixPersonTotal": "待核实",
+        "privateRoom": "待核实",
+        "queueInfo": "待核实",
+        "groupSuitability": "待核实",
+        "themeName": "待核实",
+        "escapeStyle": "待核实",
+        "venueSize": "待核实",
+        "roomCount": "待核实",
+        "minPlayers": "待核实",
+        "maxPlayers": "待核实",
+        "sixPersonSession": "待核实",
+        "npcInteraction": "待核实",
+        "physicalIntensity": "待核实",
+        "costume": "待核实",
+        "leisureFacilities": "待核实",
+        "packageInfo": "待核实",
+        "overnight": "待核实",
+        "includedMeals": "待核实",
+        "restArea": "待核实",
+        "genderArrangement": "待核实",
+        "serviceRestrictions": "待核实",
+        "attractionType": "待核实",
+        "indoorOutdoor": "待核实",
+        "weatherImpact": "待核实",
+        "ticketInfo": "待核实",
+        "recommendedDuration": "待核实"
       },
       "votes": {},
       "decisionStatus": "待比较",
-      "manualNote": ""
+      "manualNote": "",
+      "subCategory": "民宿",
+      "featureTags": [
+        "住宿"
+      ],
+      "manualOverrides": {}
     },
     {
       "id": "place-006",
@@ -567,17 +803,51 @@
         "horrorLevel": "待核实",
         "usage": "周六早茶",
         "cancellationPolicy": "待核实",
-        "evidence": "待核实"
+        "evidence": "待核实",
+        "cuisineType": "早茶早餐",
+        "signatureDishes": "待核实",
+        "sixPersonTotal": "待核实",
+        "privateRoom": "待核实",
+        "queueInfo": "待核实",
+        "groupSuitability": "待核实",
+        "themeName": "待核实",
+        "escapeStyle": "待核实",
+        "venueSize": "待核实",
+        "roomCount": "待核实",
+        "minPlayers": "待核实",
+        "maxPlayers": "待核实",
+        "sixPersonSession": "待核实",
+        "npcInteraction": "待核实",
+        "physicalIntensity": "待核实",
+        "costume": "待核实",
+        "leisureFacilities": "待核实",
+        "packageInfo": "待核实",
+        "overnight": "待核实",
+        "includedMeals": "待核实",
+        "restArea": "待核实",
+        "genderArrangement": "待核实",
+        "serviceRestrictions": "待核实",
+        "attractionType": "待核实",
+        "indoorOutdoor": "待核实",
+        "weatherImpact": "待核实",
+        "ticketInfo": "待核实",
+        "recommendedDuration": "待核实"
       },
       "votes": {},
       "decisionStatus": "拟定",
-      "manualNote": ""
+      "manualNote": "",
+      "subCategory": "早茶早餐",
+      "featureTags": [
+        "餐饮",
+        "早茶早餐"
+      ],
+      "manualOverrides": {}
     },
     {
       "id": "place-007",
       "sourceId": "seed-guide-001",
       "name": "团队密室候选",
-      "category": "活动",
+      "category": "密室",
       "area": "扬州市区",
       "price": null,
       "priceLabel": "待团队投递",
@@ -627,11 +897,45 @@
         "horrorLevel": "团队确认",
         "usage": "周日上午团队活动",
         "cancellationPolicy": "待核实",
-        "evidence": "待核实"
+        "evidence": "待核实",
+        "cuisineType": "待核实",
+        "signatureDishes": "待核实",
+        "sixPersonTotal": "待核实",
+        "privateRoom": "待核实",
+        "queueInfo": "待核实",
+        "groupSuitability": "待核实",
+        "themeName": "六人密室主题待选",
+        "escapeStyle": "待核实",
+        "venueSize": "待核实",
+        "roomCount": "待核实",
+        "minPlayers": "待核实",
+        "maxPlayers": "待核实",
+        "sixPersonSession": "待核实",
+        "npcInteraction": "待核实",
+        "physicalIntensity": "待核实",
+        "costume": "待核实",
+        "leisureFacilities": "待核实",
+        "packageInfo": "待核实",
+        "overnight": "待核实",
+        "includedMeals": "待核实",
+        "restArea": "待核实",
+        "genderArrangement": "待核实",
+        "serviceRestrictions": "待核实",
+        "attractionType": "待核实",
+        "indoorOutdoor": "待核实",
+        "weatherImpact": "待核实",
+        "ticketInfo": "待核实",
+        "recommendedDuration": "待核实"
       },
       "votes": {},
       "decisionStatus": "待比较",
-      "manualNote": ""
+      "manualNote": "",
+      "subCategory": "未分类密室",
+      "featureTags": [
+        "密室",
+        "需要预约"
+      ],
+      "manualOverrides": {}
     },
     {
       "id": "place-008",
@@ -687,11 +991,44 @@
         "horrorLevel": "待核实",
         "usage": "待分配",
         "cancellationPolicy": "待核实",
-        "evidence": "待核实"
+        "evidence": "待核实",
+        "cuisineType": "待核实",
+        "signatureDishes": "待核实",
+        "sixPersonTotal": "待核实",
+        "privateRoom": "待核实",
+        "queueInfo": "待核实",
+        "groupSuitability": "待核实",
+        "themeName": "待核实",
+        "escapeStyle": "待核实",
+        "venueSize": "待核实",
+        "roomCount": "待核实",
+        "minPlayers": "待核实",
+        "maxPlayers": "待核实",
+        "sixPersonSession": "待核实",
+        "npcInteraction": "待核实",
+        "physicalIntensity": "待核实",
+        "costume": "待核实",
+        "leisureFacilities": "待核实",
+        "packageInfo": "待核实",
+        "overnight": "待核实",
+        "includedMeals": "待核实",
+        "restArea": "待核实",
+        "genderArrangement": "待核实",
+        "serviceRestrictions": "待核实",
+        "attractionType": "待核实",
+        "indoorOutdoor": "待核实",
+        "weatherImpact": "待核实",
+        "ticketInfo": "待核实",
+        "recommendedDuration": "待核实"
       },
       "votes": {},
       "decisionStatus": "待比较",
-      "manualNote": ""
+      "manualNote": "",
+      "subCategory": "行程攻略",
+      "featureTags": [
+        "攻略"
+      ],
+      "manualOverrides": {}
     }
   ],
   "itinerary": {
@@ -848,7 +1185,7 @@
   "settings": {
     "provider": "DeepSeek · deepseek-v4-flash",
     "workbookPath": "outputs/019f7eda-a998-7660-a73d-e43b3af67965/扬州团队旅行攻略.xlsx",
-    "lastExcelSync": "2026-07-21T08:59:00.758Z"
+    "lastExcelSync": "2026-07-21T09:47:31.406Z"
   },
   "tripProfile": {
     "planVersion": "weekend-v2",
@@ -1178,6 +1515,6 @@
         "note": "以官方开放时间和预约规则为准"
       }
     ],
-    "updatedAt": "2026-07-21T08:58:21.261Z"
+    "updatedAt": "2026-07-21T09:42:58.288Z"
   }
 }

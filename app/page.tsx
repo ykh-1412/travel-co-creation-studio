@@ -10,6 +10,7 @@ type LinkRecord = {
   url: string;
   title: string;
   category: string;
+  subCategory: string;
   status: LinkStatus;
   readStatus: string;
   organizedStatus: string;
@@ -56,6 +57,34 @@ type PlaceDetails = {
   usage: string;
   cancellationPolicy: string;
   evidence: string;
+  cuisineType: string;
+  signatureDishes: string;
+  sixPersonTotal: string;
+  privateRoom: string;
+  queueInfo: string;
+  groupSuitability: string;
+  themeName: string;
+  escapeStyle: string;
+  venueSize: string;
+  roomCount: string;
+  minPlayers: string;
+  maxPlayers: string;
+  sixPersonSession: string;
+  npcInteraction: string;
+  physicalIntensity: string;
+  costume: string;
+  leisureFacilities: string;
+  packageInfo: string;
+  overnight: string;
+  includedMeals: string;
+  restArea: string;
+  genderArrangement: string;
+  serviceRestrictions: string;
+  attractionType: string;
+  indoorOutdoor: string;
+  weatherImpact: string;
+  ticketInfo: string;
+  recommendedDuration: string;
 };
 
 type Place = {
@@ -63,6 +92,8 @@ type Place = {
   sourceId?: string;
   name: string;
   category: string;
+  subCategory: string;
+  featureTags: string[];
   area: string;
   price: number | null;
   priceLabel: string;
@@ -75,6 +106,7 @@ type Place = {
   votes?: Record<string, VoteChoice>;
   decisionStatus?: "待比较" | "备选" | "拟定" | "淘汰";
   manualNote?: string;
+  manualOverrides?: Record<string, unknown>;
   completeness?: number;
   keyMissing?: string[];
   sourceUrl: string;
@@ -173,7 +205,8 @@ const EMPTY_STATE: AppState = {
 };
 
 const tabs = [["plan", "看行程"], ["collect", "投递链接"], ["library", "重点候选"], ["manage", "Excel 管理"]] as const;
-const categories = ["自动识别", "攻略文章", "住宿", "密室/活动", "景点", "餐饮"];
+const categories = ["自动识别", "攻略文章", "住宿", "餐饮", "密室", "室内休闲", "景点户外"];
+const mainFilters = ["全部", "住宿", "餐饮", "密室", "休闲娱乐", "景点", "攻略"];
 const voteChoices: VoteChoice[] = ["想去", "可以", "不考虑"];
 
 function formatTime(value: string) {
@@ -220,8 +253,10 @@ function voteSummary(place: Place) {
 function importantDetails(place: Place) {
   const d = place.details;
   if (place.category === "住宿") return [["位置", d.address], ["两晚价格", !isPending(d.twoNightTotal) ? d.twoNightTotal : place.priceLabel], ["户型 / 房间", `${d.roomType} / ${d.rooms}`], ["床位 / 床型", `${d.beds} / ${d.bedTypes}`], ["6 人容量", d.capacity], ["烧烤", d.barbecue], ["额外费用", d.extraFees], ["取消政策", d.cancellationPolicy]];
-  if (["活动", "景点"].includes(place.category)) return [["位置", d.address], ["参考价格", place.priceLabel], ["适合人数", d.capacity], ["时长", place.duration], ["难度 / 恐怖", `${d.difficulty} / ${d.horrorLevel}`], ["营业时间", d.openingHours], ["预约", d.reservation], ["取消政策", d.cancellationPolicy]];
-  if (place.category === "餐饮") return [["位置", d.address], ["参考人均", place.priceLabel], ["适合安排", d.usage], ["营业时间", d.openingHours], ["预约", d.reservation]];
+  if (place.category === "餐饮") return [["餐饮分类", place.subCategory], ["位置", d.address], ["参考人均", place.priceLabel], ["六人总价", d.sixPersonTotal], ["招牌菜", d.signatureDishes], ["包间 / 六人", `${d.privateRoom} / ${d.groupSuitability}`], ["排队", d.queueInfo], ["营业时间", d.openingHours]];
+  if (place.category === "密室") return [["主题", d.themeName], ["位置", d.address], ["恐怖 / 难度", `${d.horrorLevel} / ${d.difficulty}`], ["规模", `${d.venueSize} / ${d.roomCount}`], ["六人开场", d.sixPersonSession], ["价格", !isPending(d.sixPersonTotal) ? d.sixPersonTotal : place.priceLabel], ["时长", place.duration], ["NPC", d.npcInteraction]];
+  if (place.category === "休闲娱乐") return [["休闲类型", place.subCategory], ["位置", d.address], ["参考价格", place.priceLabel], ["包含设施", d.leisureFacilities], ["能否过夜", d.overnight], ["是否含餐", d.includedMeals], ["休息区域", d.restArea], ["使用限制", d.serviceRestrictions]];
+  if (place.category === "景点") return [["游玩类型", place.subCategory], ["具体地点", d.address], ["票价", !isPending(d.ticketInfo) ? d.ticketInfo : place.priceLabel], ["开放时间", d.openingHours], ["建议时长", !isPending(d.recommendedDuration) ? d.recommendedDuration : place.duration], ["室内 / 室外", d.indoorOutdoor], ["天气影响", d.weatherImpact], ["预约", d.reservation]];
   return [["涉及区域", place.area], ["数据状态", place.dataStatus]];
 }
 
@@ -247,6 +282,7 @@ export default function Home() {
   const [connected, setConnected] = useState(false);
   const [message, setMessage] = useState("");
   const [libraryFilter, setLibraryFilter] = useState("全部");
+  const [subCategoryFilter, setSubCategoryFilter] = useState("全部子类");
   const [showAllCandidates, setShowAllCandidates] = useState(false);
   const [backendBase, setBackendBase] = useState("http://localhost:8787");
   const [draftPlan, setDraftPlan] = useState<FinalPlan | null>(null);
@@ -324,6 +360,7 @@ export default function Home() {
   const filteredPlaces = useMemo(() => {
     const ranked = [...state.places]
       .filter((place) => libraryFilter === "全部" || place.category === libraryFilter)
+      .filter((place) => subCategoryFilter === "全部子类" || place.subCategory === subCategoryFilter || place.featureTags.includes(subCategoryFilter))
       .sort((left, right) => candidateRank(right) - candidateRank(left));
     if (showAllCandidates) return ranked;
     const visible = ranked.filter((place) => place.decisionStatus !== "淘汰");
@@ -335,7 +372,12 @@ export default function Home() {
       perCategory.set(place.category, count + 1);
       return true;
     }).slice(0, 10);
-  }, [state.places, libraryFilter, showAllCandidates]);
+  }, [state.places, libraryFilter, subCategoryFilter, showAllCandidates]);
+
+  const availableSubCategories = useMemo(() => {
+    const relevant = state.places.filter((place) => libraryFilter === "全部" || place.category === libraryFilter);
+    return [...new Set(relevant.flatMap((place) => [place.subCategory, ...place.featureTags].filter(Boolean)))].sort((left, right) => left.localeCompare(right, "zh-CN")).slice(0, 18);
+  }, [state.places, libraryFilter]);
 
   const decisionStats = useMemo(() => ({
     total: state.places.length,
@@ -487,7 +529,7 @@ export default function Home() {
       </>}
 
       {activeTab === "collect" && <section className="shell workspace-page">
-        <div className="page-title"><p className="eyebrow">投递灵感</p><h1>粘贴链接，后台拆成可比较的数据。</h1><p>民宿会重点整理价格、位置、户型、床位、烧烤和取消政策；打不开的链接也会明确标记，不会悄悄遗漏。</p></div>
+        <div className="page-title"><p className="eyebrow">投递灵感</p><h1>粘贴链接，后台按类型拆成专属数据。</h1><p>餐饮会分烧烤、火锅、炒菜和早茶；密室会整理恐怖程度、难度、规模与六人价格；汗蒸、桑拿、洗浴和景点也有各自字段。</p></div>
         <div className="report-summary"><div><span>全部链接</span><strong>{stats.links}</strong></div><div className="good"><span>已成功整理</span><strong>{stats.completed}</strong></div><div className="warn"><span>未整理</span><strong>{stats.unorganized}</strong></div><div><span>处理中</span><strong>{stats.processing}</strong></div></div>
         <div className="collect-layout">
           <form className="collect-form" onSubmit={submitLinks}>
@@ -496,12 +538,12 @@ export default function Home() {
             <label>重点关注<input value={note} onChange={(event) => setNote(event.target.value)} placeholder="例如：重点看 6 人能否住、周六能否烧烤" /></label>
             <button className="primary wide" disabled={sending}>{sending ? "正在提交……" : "开始后台整理"}</button><p className="form-hint">需要登录、验证码或限制抓取的平台会标记为“读取受限 / 未整理”，系统不会编造内容。</p>
           </form>
-          <aside className="pipeline-card"><span className="paper-tag">提交后会发生什么</span><h3>三步就够了</h3>{["原始链接立刻进入 Excel 台账", "DeepSeek 拆出价格、位置和规格", "候选决策台自动排好，等你筛选"].map((item, index) => <div className="pipeline-step" key={item}><b>{String(index + 1).padStart(2, "0")}</b><span>{item}</span></div>)}<p className="pipeline-note">如果网页需要登录或验证码，会标记为“需要补充”，不会凭空编造。</p></aside>
+          <aside className="pipeline-card"><span className="paper-tag">提交后会发生什么</span><h3>先分类，再提取</h3>{["原始链接立刻进入 Excel 台账", "识别大类、子类和多个特征标签", "DeepSeek 按专属模板提取并等待你筛选"].map((item, index) => <div className="pipeline-step" key={item}><b>{String(index + 1).padStart(2, "0")}</b><span>{item}</span></div>)}<p className="pipeline-note">如果网页需要登录或验证码，会标记为“需要补充”，不会凭空编造。</p></aside>
         </div>
         <div className="task-panel"><div className="panel-heading"><div><h2>链接处理报告</h2><p>成功和失败都在这里；完整报告也已写入 Excel。</p></div><button className="small-button" onClick={() => refresh()}>刷新状态</button></div><div className="task-list">
           {state.links.length === 0 && <div className="empty-state">还没有团队链接。提交第一个链接后，处理过程会显示在这里。</div>}
           {state.links.map((item) => <article className="task-report" key={item.id}>
-            <div className="task-report-main"><span className="source-icon">链</span><div><div className="task-title-line"><strong>{item.title || sourceName(item.url)}</strong><span>{item.category}</span></div><a href={item.url} target="_blank" rel="noreferrer">{item.url}</a><p>{item.resultNote}</p></div></div>
+            <div className="task-report-main"><span className="source-icon">链</span><div><div className="task-title-line"><strong>{item.title || sourceName(item.url)}</strong><span>{item.category}{item.subCategory ? ` · ${item.subCategory}` : ""}</span></div><a href={item.url} target="_blank" rel="noreferrer">{item.url}</a><p>{item.resultNote}</p></div></div>
             <div className="task-statuses"><span className={`status-badge ${statusTone(item.readStatus)}`}><i />{item.readStatus}</span><span className={`status-badge ${statusTone(item.organizedStatus)}`}><i />{item.organizedStatus}</span><small>{formatTime(item.updatedAt)}</small></div>
             <details className="task-details"><summary>查看整理详情</summary><div className="fact-columns"><div><b>已提取</b><p>{item.factsFound.length ? item.factsFound.join(" · ") : "暂无"}</p></div><div><b>还缺少</b><p>{item.missingFields.length ? item.missingFields.join(" · ") : "无明显缺失"}</p></div></div></details>
             <div className="task-report-foot"><span>{item.submitter} · {item.model || "等待分配模型"}</span>{(item.organizedStatus === "未整理" || item.status === "处理失败") && <button className="small-button" onClick={() => retryLink(item.id)}>重新尝试</button>}</div>
@@ -510,39 +552,39 @@ export default function Home() {
       </section>}
 
       {activeTab === "library" && <section className="shell workspace-page">
-        <div className="page-title split"><div><p className="eyebrow">重点候选</p><h1>网页只看重点，完整比较交给 Excel。</h1><p>默认每类只展示推荐度较高的候选，避免十几个民宿全部铺开。所有价格、位置、户型和缺失项都保留在 Excel「候选决策台」。</p></div><div className="library-count"><strong>{filteredPlaces.length}</strong><span>当前展示 / 共 {state.places.length} 个</span></div></div>
+        <div className="page-title split"><div><p className="eyebrow">重点候选</p><h1>先选大类，再按子类快速缩小范围。</h1><p>可以直接筛选烧烤、火锅、微恐、中恐、汗蒸、桑拿等标签；完整字段和人工修改记录都保留在 Excel。</p></div><div className="library-count"><strong>{filteredPlaces.length}</strong><span>当前展示 / 共 {state.places.length} 个</span></div></div>
         <div className="nickname-bar"><div><strong>我的昵称</strong><span>不用注册，只用于区分是谁做的选择</span></div><input value={nickname} onChange={(event) => rememberNickname(event.target.value)} placeholder="例如：小王" maxLength={20} /></div>
         <div className="candidate-notice candidate-mode"><div><strong>{showAllCandidates ? "正在查看全部候选" : "智能收起已开启"}</strong><span>{showAllCandidates ? "包括待比较和已淘汰项目，完整数据仍以 Excel 为准。" : "每类最多显示 3 个重点项目；已淘汰候选默认隐藏。"}</span></div><button className="small-button" onClick={() => setShowAllCandidates((value) => !value)}>{showAllCandidates ? "收起，只看重点" : `查看全部 ${state.places.length} 个`}</button></div>
-        <div className="filter-bar">{["全部", "住宿", "活动", "景点", "餐饮", "攻略"].map((item) => <button key={item} className={libraryFilter === item ? "selected" : ""} onClick={() => { setLibraryFilter(item); setShowAllCandidates(false); }}>{item}</button>)}</div>
+        <div className="filter-stack"><div className="filter-label"><strong>大类</strong><span>先选住宿、餐饮或游玩方向</span></div><div className="filter-bar">{mainFilters.map((item) => <button key={item} className={libraryFilter === item ? "selected" : ""} onClick={() => { setLibraryFilter(item); setSubCategoryFilter("全部子类"); setShowAllCandidates(false); }}>{item}</button>)}</div>{availableSubCategories.length > 0 && <><div className="filter-label secondary"><strong>子类 / 标签</strong><span>一个候选可以同时拥有多个标签</span></div><div className="filter-bar sub-filter"><button className={subCategoryFilter === "全部子类" ? "selected" : ""} onClick={() => setSubCategoryFilter("全部子类")}>全部子类</button>{availableSubCategories.map((item) => <button key={item} className={subCategoryFilter === item ? "selected" : ""} onClick={() => setSubCategoryFilter(item)}>{item}</button>)}</div></>}</div>
         <div className="place-grid simple-place-grid">{filteredPlaces.map((place) => {
           const votes = voteSummary(place);
           const myVote = place.votes?.[nickname.trim()];
           const details = importantDetails(place).slice(0, 4);
           return <article className={`place-card simple-place-card ${place.selected ? "chosen-card" : ""}`} key={place.id}>
-          <div className="place-top"><span className="place-category">{place.category}</span><span className={place.selected ? "selected-mark" : `candidate-mark decision-${place.decisionStatus || "待比较"}`}>{place.selected ? "已入选" : place.decisionStatus || "待比较"}</span></div>
+          <div className="place-top"><span className="place-category">{place.category} · {place.subCategory}</span><span className={place.selected ? "selected-mark" : `candidate-mark decision-${place.decisionStatus || "待比较"}`}>{place.selected ? "已入选" : place.decisionStatus || "待比较"}</span></div>
           <h3>{place.name}</h3><p className="place-meta">{place.area} · {place.category === "住宿" && !isPending(place.details.twoNightTotal) ? place.details.twoNightTotal : place.priceLabel}</p>
           <div className="candidate-metrics"><div><span>资料完整度</span><strong>{place.completeness || 0}%</strong></div><div><span>AI 推荐</span><strong>{place.score.toFixed(1)}</strong></div><div><span>还缺</span><strong>{place.keyMissing?.length || 0} 项</strong></div></div>
           <div className="candidate-highlight"><div><span>为什么值得看</span><strong>{place.pros[0] || "等待分析"}</strong></div><div><span>还要核实</span><strong>{place.cons[0] || "等待核实"}</strong></div></div>
           <div className="detail-grid compact-details">{details.map(([label, detail]) => <div key={label}><span>{label}</span><strong>{detail}</strong></div>)}</div>
           <div className="vote-panel"><div className="vote-summary"><strong>{votes.support}</strong><span>人想去</span><small>{votes.okay} 人可以 · {votes.reject} 人不考虑</small></div><div className="vote-buttons">{voteChoices.map((choice) => <button key={choice} className={myVote === choice ? "selected" : ""} onClick={() => voteForPlace(place.id, choice)}>{choice}</button>)}</div></div>
-          <details className="candidate-details"><summary>查看更多资料</summary><div className="place-tags">{place.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>{place.keyMissing?.length ? <p className="candidate-missing"><b>缺失项：</b>{place.keyMissing.join(" · ")}</p> : null}{place.manualNote ? <p className="candidate-manual-note"><b>人工备注：</b>{place.manualNote}</p> : null}<div className="place-footer"><div><span>参考预算</span><strong>{place.priceLabel}</strong></div><div className="score"><span>推荐度</span><strong>{place.score.toFixed(1)}</strong></div></div><p className="data-state">数据状态：{place.dataStatus}</p></details>
+          <details className="candidate-details"><summary>查看更多资料</summary><div className="place-tags">{[...new Set([place.subCategory, ...place.featureTags, ...place.tags])].map((tag) => <span key={tag}>{tag}</span>)}</div>{place.keyMissing?.length ? <p className="candidate-missing"><b>缺失项：</b>{place.keyMissing.join(" · ")}</p> : null}{place.manualNote ? <p className="candidate-manual-note"><b>人工备注：</b>{place.manualNote}</p> : null}{Object.keys(place.manualOverrides || {}).length ? <p className="candidate-manual-note"><b>人工保护：</b>{Object.keys(place.manualOverrides || {}).length} 个字段不会被重新分析覆盖</p> : null}<div className="place-footer"><div><span>参考预算</span><strong>{place.priceLabel}</strong></div><div className="score"><span>推荐度</span><strong>{place.score.toFixed(1)}</strong></div></div><p className="data-state">数据状态：{place.dataStatus}</p></details>
           <div className="card-link-row">{place.details.address && !isPending(place.details.address) && <a href={mapSearchUrl(place.details.address)} target="_blank" rel="noreferrer">地图</a>}{place.sourceUrl && <a href={place.sourceUrl} target="_blank" rel="noreferrer">原始链接</a>}</div>
         </article>})}</div>
         {!filteredPlaces.length && <div className="empty-state">当前筛选下没有重点候选，可以查看全部或继续投递链接。</div>}
       </section>}
 
       {activeTab === "manage" && <section className="shell workspace-page manage-page">
-        <div className="page-title"><p className="eyebrow">Excel 管理</p><h1>你在 Excel 里筛选，网页负责给大家看。</h1><p>先在「候选决策台」比较所有链接，再把确定结果写进「行程首页」。保存后网页会在几秒内自动更新。</p></div>
+        <div className="page-title"><p className="eyebrow">Excel 管理</p><h1>你在 Excel 里分类、比较和定稿。</h1><p>先在「候选决策台」看全局，再到美食、密室、休闲或住宿分表补充黄色字段，最后把确定结果写进「行程首页」。</p></div>
         <div className="decision-overview"><div><span>全部候选</span><strong>{decisionStats.total}</strong></div><div><span>拟定 / 备选</span><strong>{decisionStats.shortlist}</strong></div><div><span>资料完整 ≥ 75%</span><strong>{decisionStats.complete}</strong></div><div><span>已淘汰</span><strong>{decisionStats.rejected}</strong></div></div>
         <div className="excel-hero"><div className="excel-file-icon">X</div><div className="excel-file-info"><span>主操作文件</span><h2>扬州团队旅行攻略.xlsx</h2><p>打开后先看第二张「候选决策台」 · 最近同步：{formatTime(state.settings.lastExcelSync)}</p></div><div className="excel-actions"><a className="primary" href={`${backendBase}/api/download/excel`}>打开 Excel 决策台</a><button className="small-button" onClick={syncExcel}>立即读取修改</button></div></div>
 
         <div className="manage-choice-grid">
-          <article className="recommended-choice"><span>推荐流程</span><h2>先筛候选，再定行程</h2><p>几十条链接也不用逐个打开。价格、位置、户型、亮点、风险和缺失项已经排成一行。</p><ol><li>在「候选决策台」筛选和比较</li><li>黄色列改成备选、拟定或淘汰</li><li>在详细表补充缺少的价格与规格</li><li>最后把确定内容写进「行程首页」</li></ol></article>
+          <article className="recommended-choice"><span>推荐流程</span><h2>先分类，再补全，最后定行程</h2><p>每类链接都有自己的比较字段，黄色单元格是你可以人工确认和修正的内容。</p><ol><li>在「候选决策台」按大类和子分类筛选</li><li>进入美食、密室、室内休闲等分表补全信息</li><li>黄色列改过的内容会被人工保护</li><li>最后把确定内容写进「行程首页」</li></ol></article>
           <article><span>备用</span><h2>在网页中快速修改</h2><p>适合临时改一个时间、负责人或民宿信息，保存后同样会写回 Excel。</p><button className="small-button" onClick={startPlanEditing}>打开网页编辑器</button></article>
         </div>
 
-        <div className="simple-section-title manage-sheet-title"><div><p className="eyebrow">只需要认识这四张表</p><h2>一张做决策，一张看细节，一张定结果</h2></div></div>
-        <div className="sheet-grid simple-sheet-grid">{[["候选决策台","快速筛价格、位置、规格和缺失项"],["住宿 / 活动 / 餐饮候选","需要时查看完整字段和证据"],["行程首页","最终网页的唯一内容来源"],["处理报告","查看哪些链接成功或失败"]].map(([name, desc], index) => <div className={`sheet-card ${index === 0 ? "primary-sheet" : ""}`} key={name}><b>{String(index + 1).padStart(2, "0")}</b><div><strong>{name}</strong><p>{desc}</p></div></div>)}</div>
+        <div className="simple-section-title manage-sheet-title"><div><p className="eyebrow">四组工作表</p><h2>全局决策、分类细节、最终行程和处理记录</h2></div></div>
+        <div className="sheet-grid simple-sheet-grid">{[["候选决策台","统一比较大类、子分类、价格、位置和缺失项"],["六张分类明细","住宿、美食、密室、室内休闲、景点与攻略"],["行程首页","最终网页的唯一内容来源"],["链接汇总 / 处理报告","查看哪些链接成功、受限或需要补充"]].map(([name, desc], index) => <div className={`sheet-card ${index === 0 ? "primary-sheet" : ""}`} key={name}><b>{String(index + 1).padStart(2, "0")}</b><div><strong>{name}</strong><p>{desc}</p></div></div>)}</div>
 
         <details className="advanced-settings"><summary>查看运行状态</summary><div className="settings-card"><div className="setting-row"><div><span>当前分析方式</span><strong>{state.settings.provider}</strong></div><span className="setting-state good">已配置</span></div><div className="setting-row"><div><span>本地后台</span><strong>{connected ? "正在运行" : "未连接"}</strong></div><span className={`setting-state ${connected ? "good" : ""}`}>{connected ? "可用" : "请启动服务"}</span></div><div className="setting-row"><div><span>Excel 自动同步</span><strong>每 4 秒检查一次</strong></div><span className="setting-state good">已开启</span></div></div></details>
         <div className="scope-note safety"><strong>不会自动下单</strong><p>网站只负责整理和展示。住宿、餐厅、密室与门票都需要大家确认真实价格和取消政策后再预订。</p></div>

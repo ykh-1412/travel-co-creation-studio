@@ -48,5 +48,17 @@ test("local data and the generated workbook are present", async () => {
   assert.equal(state.project.destination, "扬州");
   assert.equal(state.project.days, 2);
   assert.ok(state.places.length >= 1);
+  assert.ok(state.places.every((place) => ["住宿", "餐饮", "密室", "休闲娱乐", "景点", "攻略"].includes(place.category)));
+  assert.ok(state.places.every((place) => typeof place.subCategory === "string" && place.subCategory.length > 0));
+  assert.ok(state.places.every((place) => Array.isArray(place.featureTags)));
+  const subCategories = {
+    住宿: ["民宿", "酒店", "公寓", "客栈", "度假村", "其他住宿"],
+    餐饮: ["烧烤", "火锅", "早茶早餐", "炒菜正餐", "自助餐", "夜宵", "甜品饮品", "咖啡", "酒吧", "其他餐饮"],
+    密室: ["推理密室", "机关密室", "剧情密室", "恐怖密室", "未分类密室"],
+    休闲娱乐: ["汗蒸", "桑拿", "洗浴中心", "温泉", "SPA", "足疗按摩", "KTV", "桌游", "电竞", "电玩城", "沉浸式剧场", "其他休闲"],
+    景点: ["博物馆", "园林景区", "历史街区", "公园", "古镇", "露营", "户外运动", "演出展览", "其他景点"],
+    攻略: ["美食攻略", "住宿攻略", "行程攻略", "综合攻略"],
+  };
+  assert.ok(state.places.every((place) => subCategories[place.category].includes(place.subCategory)));
   assert.equal(workbook.subarray(0, 2).toString(), "PK");
 });
