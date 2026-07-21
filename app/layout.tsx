@@ -19,9 +19,9 @@ export async function generateMetadata(): Promise<Metadata> {
       title,
       description,
       type: "website",
-      images: [{ url: new URL("/og.png", base).toString(), width: 1736, height: 909, alt: "下扬州 · 团队旅行共创台" }],
+      images: [{ url: new URL("/og-v2.png", base).toString(), width: 1731, height: 909, alt: "下扬州 · 6 人周末计划" }],
     },
-    twitter: { card: "summary_large_image", title, description, images: [new URL("/og.png", base).toString()] },
+    twitter: { card: "summary_large_image", title, description, images: [new URL("/og-v2.png", base).toString()] },
   };
 }
 

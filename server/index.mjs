@@ -260,6 +260,7 @@ function normalizeState(raw) {
     tags: Array.isArray(item.tags) ? item.tags : [],
     pros: Array.isArray(item.pros) ? item.pros : [],
     cons: Array.isArray(item.cons) ? item.cons : [],
+    votes: item.votes && typeof item.votes === "object" && !Array.isArray(item.votes) ? item.votes : {},
     details: { ...defaultDetails, ...(seedDetails[item.id] || {}), ...(item.details || {}), address: item.details?.address || seedDetails[item.id]?.address || item.area || "待核实" },
   })) : [];
   state.itinerary = state.itinerary || {};
@@ -677,10 +678,10 @@ function enqueueLink(id) {
 const headers = {
   links: ["ID", "提交时间", "提交人", "原始链接", "页面标题", "自动分类", "读取结果", "整理结果", "处理状态", "已提取信息", "缺失信息", "AI摘要", "分析模型", "错误原因", "备注"],
   report: ["ID", "提交人", "页面标题", "分类", "读取结果", "整理结果", "结果说明", "已提取信息", "缺失信息", "错误原因", "原始链接", "更新时间"],
-  stays: ["ID", "名称", "区域", "详细地址", "每晚价格", "两晚总价", "适合人数", "房间", "床位", "卫浴", "环境特点", "是否整租", "厨房", "能否烧烤", "烧烤设备/费用", "早餐", "停车", "交通", "入住时间", "退房时间", "预订状态", "优点", "缺点", "推荐分", "是否入选", "原始链接", "数据状态"],
-  activities: ["ID", "名称", "活动类型", "区域", "详细地址", "价格", "适合人数", "时长", "难度", "恐怖程度", "营业时间", "预约要求", "预订状态", "优点", "缺点", "推荐分", "是否入选", "原始链接", "数据状态"],
-  food: ["ID", "名称", "类型", "适合安排", "区域", "详细地址", "人均价格", "营业时间", "预约要求", "预订状态", "推荐菜/特点", "优点", "缺点", "推荐分", "是否入选", "原始链接", "数据状态"],
-  guides: ["ID", "标题", "涉及区域", "AI摘要", "避坑信息", "交通建议", "已提取信息", "缺失信息", "是否入选", "原始链接", "数据状态"],
+  stays: ["ID", "名称", "区域", "详细地址", "每晚价格", "两晚总价", "适合人数", "房间", "床位", "卫浴", "环境特点", "是否整租", "厨房", "能否烧烤", "烧烤设备/费用", "早餐", "停车", "交通", "入住时间", "退房时间", "预订状态", "优点", "缺点", "推荐分", "想去票", "可以票", "不考虑票", "投票详情", "是否入选", "原始链接", "数据状态"],
+  activities: ["ID", "名称", "活动类型", "区域", "详细地址", "价格", "适合人数", "时长", "难度", "恐怖程度", "营业时间", "预约要求", "预订状态", "优点", "缺点", "推荐分", "想去票", "可以票", "不考虑票", "投票详情", "是否入选", "原始链接", "数据状态"],
+  food: ["ID", "名称", "类型", "适合安排", "区域", "详细地址", "人均价格", "营业时间", "预约要求", "预订状态", "推荐菜/特点", "优点", "缺点", "推荐分", "想去票", "可以票", "不考虑票", "投票详情", "是否入选", "原始链接", "数据状态"],
+  guides: ["ID", "标题", "涉及区域", "AI摘要", "避坑信息", "交通建议", "已提取信息", "缺失信息", "想去票", "可以票", "不考虑票", "投票详情", "是否入选", "原始链接", "数据状态"],
   itinerary: ["日期", "开始时间", "结束时间", "类型", "地点", "活动安排", "详细地址", "交通", "预计费用/人", "预订状态", "注意事项", "来源ID", "来源链接"],
   reservations: ["ID", "待办事项", "类型", "计划时间", "当前状态", "负责人", "完成期限", "核对说明"],
   settings: ["设置项", "当前内容", "说明"],
@@ -690,10 +691,10 @@ const headers = {
 const sheetDescriptions = {
   "链接汇总": "每一条团队链接的完整台账；读取失败也会保留，不会静默丢失。",
   "处理报告": "快速查看哪些链接已成功整理、哪些未整理，以及缺失了什么。",
-  "住宿候选": "重点比较 6 人住两晚、环境、烧烤、房间床位与预订条件。",
-  "活动候选": "密室、景点和其他团队活动；动态信息需在下单前复核。",
-  "餐饮候选": "周六早茶、周日早餐、正餐与烧烤相关候选。",
-  "攻略文章": "攻略文章中已经提取的事实、建议与仍待核实的信息。",
+  "住宿候选": "查看团队投票并比较 6 人住两晚、烧烤与房型；黄色“是否入选”可直接修改。",
+  "活动候选": "查看团队投票、密室和景点条件；黄色“是否入选”可直接修改。",
+  "餐饮候选": "查看团队投票和餐饮候选；黄色“是否入选”可直接修改。",
+  "攻略文章": "查看攻略摘要、团队投票和缺失信息；黄色“是否入选”可直接修改。",
   "两日行程": "包含周五晚抵达，以及周六、周日两天的初版安排。",
   "预订清单": "所有需要团队确认或下单的事项；网站不会代替你付款。",
   "项目设置": "这次扬州周末旅行的需求约束与运行设置。",
@@ -707,6 +708,17 @@ function columnWidth(header) {
   if (/标题|名称|地点|待办事项|活动安排/.test(header)) return 24;
   if (/时间|日期|状态|结果|分类|类型|区域|价格|费用|人数|分|房间|床位|卫浴|厨房|早餐|停车|负责人|期限/.test(header)) return 16;
   return 18;
+}
+
+function placeVoteColumns(place) {
+  const votes = place.votes && typeof place.votes === "object" ? place.votes : {};
+  const entries = Object.entries(votes);
+  return [
+    entries.filter(([, choice]) => choice === "想去").length,
+    entries.filter(([, choice]) => choice === "可以").length,
+    entries.filter(([, choice]) => choice === "不考虑").length,
+    entries.map(([name, choice]) => `${name}：${choice}`).join("；"),
+  ];
 }
 
 function ensureSheet(workbook, name, sheetHeaders) {
@@ -770,6 +782,18 @@ function replaceRows(sheet, rows, columnCount) {
     }
   }
   sheet.autoFilter = { from: { row: 3, column: 1 }, to: { row: Math.max(4, 3 + rows.length), column: columnCount } };
+}
+
+function styleCandidateDecisions(sheet, sheetHeaders, rowCount) {
+  const decisionColumn = sheetHeaders.indexOf("是否入选") + 1;
+  if (!decisionColumn) return;
+  for (let rowNumber = 4; rowNumber < 4 + Math.max(rowCount, 1); rowNumber += 1) {
+    const cell = sheet.getCell(rowNumber, decisionColumn);
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF4D6" } };
+    cell.font = { name: "PingFang SC", color: { argb: "8A542C" }, size: 9, bold: true };
+    cell.alignment = { vertical: "middle", horizontal: "center" };
+    cell.dataValidation = { type: "list", allowBlank: false, formulae: ['"是,否"'] };
+  }
 }
 
 function homeStatusStyle(status) {
@@ -947,23 +971,27 @@ async function syncToExcel(state) {
     const staySheet = ensureSheet(workbook, "住宿候选", headers.stays);
     replaceRows(staySheet, stays.map((item) => {
       const d = item.details;
-      return [item.id, item.name, item.area, d.address, item.price, d.twoNightTotal, d.capacity, d.rooms, d.beds, d.bathrooms, d.environment, d.entireRental, d.kitchen, d.barbecue, d.bbqEquipment, d.breakfast, d.parking, d.transport, d.checkIn, d.checkOut, d.bookingStatus, item.pros.join("；"), item.cons.join("；"), item.score, item.selected ? "是" : "否", item.sourceUrl, item.dataStatus];
+      return [item.id, item.name, item.area, d.address, item.price, d.twoNightTotal, d.capacity, d.rooms, d.beds, d.bathrooms, d.environment, d.entireRental, d.kitchen, d.barbecue, d.bbqEquipment, d.breakfast, d.parking, d.transport, d.checkIn, d.checkOut, d.bookingStatus, item.pros.join("；"), item.cons.join("；"), item.score, ...placeVoteColumns(item), item.selected ? "是" : "否", item.sourceUrl, item.dataStatus];
     }), headers.stays.length);
+    styleCandidateDecisions(staySheet, headers.stays, stays.length);
 
     const activities = state.places.filter((item) => ["活动", "景点"].includes(item.category));
     const activitySheet = ensureSheet(workbook, "活动候选", headers.activities);
-    replaceRows(activitySheet, activities.map((item) => [item.id, item.name, item.category, item.area, item.details.address, item.price, item.details.capacity, item.duration, item.details.difficulty, item.details.horrorLevel, item.details.openingHours, item.details.reservation, item.details.bookingStatus, item.pros.join("；"), item.cons.join("；"), item.score, item.selected ? "是" : "否", item.sourceUrl, item.dataStatus]), headers.activities.length);
+    replaceRows(activitySheet, activities.map((item) => [item.id, item.name, item.category, item.area, item.details.address, item.price, item.details.capacity, item.duration, item.details.difficulty, item.details.horrorLevel, item.details.openingHours, item.details.reservation, item.details.bookingStatus, item.pros.join("；"), item.cons.join("；"), item.score, ...placeVoteColumns(item), item.selected ? "是" : "否", item.sourceUrl, item.dataStatus]), headers.activities.length);
+    styleCandidateDecisions(activitySheet, headers.activities, activities.length);
 
     const food = state.places.filter((item) => item.category === "餐饮");
     const foodSheet = ensureSheet(workbook, "餐饮候选", headers.food);
-    replaceRows(foodSheet, food.map((item) => [item.id, item.name, "餐饮", item.details.usage, item.area, item.details.address, item.price, item.details.openingHours, item.details.reservation, item.details.bookingStatus, item.tags.join("；"), item.pros.join("；"), item.cons.join("；"), item.score, item.selected ? "是" : "否", item.sourceUrl, item.dataStatus]), headers.food.length);
+    replaceRows(foodSheet, food.map((item) => [item.id, item.name, "餐饮", item.details.usage, item.area, item.details.address, item.price, item.details.openingHours, item.details.reservation, item.details.bookingStatus, item.tags.join("；"), item.pros.join("；"), item.cons.join("；"), item.score, ...placeVoteColumns(item), item.selected ? "是" : "否", item.sourceUrl, item.dataStatus]), headers.food.length);
+    styleCandidateDecisions(foodSheet, headers.food, food.length);
 
     const guides = state.places.filter((item) => item.category === "攻略");
     const guideSheet = ensureSheet(workbook, "攻略文章", headers.guides);
     replaceRows(guideSheet, guides.map((item) => {
       const link = state.links.find((candidate) => candidate.id === item.sourceId);
-      return [item.id, item.name, item.area, link?.summary || item.pros.join("；"), item.cons.join("；"), item.details.transport, link?.factsFound?.join("；") || "", link?.missingFields?.join("；") || "", item.selected ? "是" : "否", item.sourceUrl, item.dataStatus];
+      return [item.id, item.name, item.area, link?.summary || item.pros.join("；"), item.cons.join("；"), item.details.transport, link?.factsFound?.join("；") || "", link?.missingFields?.join("；") || "", ...placeVoteColumns(item), item.selected ? "是" : "否", item.sourceUrl, item.dataStatus];
     }), headers.guides.length);
+    styleCandidateDecisions(guideSheet, headers.guides, guides.length);
 
     const itinerarySheet = ensureSheet(workbook, "两日行程", headers.itinerary);
     const itineraryRows = [
@@ -1191,6 +1219,22 @@ async function importFromExcel() {
     });
   }
 
+  const guideSheet = workbook.getWorksheet("攻略文章");
+  if (guideSheet) {
+    const map = headerIndex(guideSheet);
+    guideSheet.eachRow((row, number) => {
+      if (number < 4) return;
+      const id = String(value(row, map, "ID") || "").trim();
+      if (!id) return;
+      const index = state.places.findIndex((item) => item.id === id);
+      if (index < 0) return;
+      state.places[index] = {
+        ...state.places[index],
+        selected: String(value(row, map, "是否入选")).trim() === "是",
+      };
+    });
+  }
+
   const itinerarySheet = workbook.getWorksheet("两日行程");
   if (itinerarySheet && !hasFinalPlanHome) {
     const map = headerIndex(itinerarySheet);
@@ -1305,6 +1349,28 @@ const server = http.createServer(async (request, response) => {
       state.finalPlan = sanitizeFinalPlan(body.finalPlan, state.finalPlan);
       await syncToExcel(state);
       return sendJson(response, 200, { ok: true, state: await stateForClient() });
+    }
+    const voteMatch = url.pathname.match(/^\/api\/places\/([^/]+)\/vote$/);
+    if (request.method === "POST" && voteMatch) {
+      const id = decodeURIComponent(voteMatch[1]);
+      const body = await readBody(request);
+      const nickname = limitedText(body.nickname, "", 20);
+      const choice = limitedText(body.choice, "", 20);
+      if (!nickname || nickname === "团队成员") return sendJson(response, 400, { error: "请先填写团队昵称" });
+      if (!["想去", "可以", "不考虑"].includes(choice)) return sendJson(response, 400, { error: "请选择有效意见" });
+      const state = await readState();
+      const index = state.places.findIndex((item) => item.id === id);
+      if (index < 0) return sendJson(response, 404, { error: "候选项目不存在" });
+      const votes = { ...(state.places[index].votes || {}) };
+      const removed = votes[nickname] === choice;
+      if (removed) delete votes[nickname];
+      else votes[nickname] = choice;
+      state.places[index] = {
+        ...state.places[index],
+        votes,
+      };
+      await syncToExcel(state);
+      return sendJson(response, 200, { ok: true, removed, state: await stateForClient() });
     }
     if (request.method === "GET" && url.pathname === "/api/download/excel") {
       const bytes = await fs.readFile(workbookPath);

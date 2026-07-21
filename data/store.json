@@ -137,7 +137,8 @@
         "difficulty": "待核实",
         "horrorLevel": "待核实",
         "usage": "待分配"
-      }
+      },
+      "votes": {}
     },
     {
       "id": "place-b34f514c-cc18-49a3-873b-8651853e07b9",
@@ -189,7 +190,8 @@
         "difficulty": "待核实",
         "horrorLevel": "待核实",
         "usage": "待核实"
-      }
+      },
+      "votes": {}
     },
     {
       "id": "place-001",
@@ -238,7 +240,8 @@
         "difficulty": "待核实",
         "horrorLevel": "待核实",
         "usage": "待分配"
-      }
+      },
+      "votes": {}
     },
     {
       "id": "place-002",
@@ -287,7 +290,8 @@
         "difficulty": "待核实",
         "horrorLevel": "待核实",
         "usage": "待分配"
-      }
+      },
+      "votes": {}
     },
     {
       "id": "place-003",
@@ -336,7 +340,8 @@
         "difficulty": "待核实",
         "horrorLevel": "待核实",
         "usage": "待分配"
-      }
+      },
+      "votes": {}
     },
     {
       "id": "place-004",
@@ -385,7 +390,8 @@
         "difficulty": "待核实",
         "horrorLevel": "待核实",
         "usage": "待分配"
-      }
+      },
+      "votes": {}
     },
     {
       "id": "place-005",
@@ -434,7 +440,8 @@
         "difficulty": "待核实",
         "horrorLevel": "待核实",
         "usage": "待分配"
-      }
+      },
+      "votes": {}
     },
     {
       "id": "place-006",
@@ -483,7 +490,8 @@
         "difficulty": "待核实",
         "horrorLevel": "待核实",
         "usage": "周六早茶"
-      }
+      },
+      "votes": {}
     },
     {
       "id": "place-007",
@@ -532,7 +540,8 @@
         "difficulty": "中等优先",
         "horrorLevel": "团队确认",
         "usage": "周日上午团队活动"
-      }
+      },
+      "votes": {}
     },
     {
       "id": "place-008",
@@ -581,7 +590,8 @@
         "difficulty": "待核实",
         "horrorLevel": "待核实",
         "usage": "待分配"
-      }
+      },
+      "votes": {}
     }
   ],
   "itinerary": {
@@ -738,7 +748,7 @@
   "settings": {
     "provider": "DeepSeek · deepseek-v4-flash",
     "workbookPath": "outputs/019f7eda-a998-7660-a73d-e43b3af67965/扬州团队旅行攻略.xlsx",
-    "lastExcelSync": "2026-07-21T03:25:24.296Z"
+    "lastExcelSync": "2026-07-21T03:57:44.076Z"
   },
   "tripProfile": {
     "planVersion": "weekend-v2",
