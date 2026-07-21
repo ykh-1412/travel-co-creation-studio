@@ -122,6 +122,111 @@ function finalValueStatus(value) {
   return "已确定";
 }
 
+function limitedText(value, fallback = "", maximum = 500) {
+  const text = String(value ?? "").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "").trim();
+  return (text || String(fallback ?? "").trim()).slice(0, maximum);
+}
+
+function submittedText(object, key, fallback = "", maximum = 500, allowBlank = true) {
+  if (!Object.prototype.hasOwnProperty.call(object, key)) return limitedText(fallback, "", maximum);
+  const text = String(object[key] ?? "").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "").trim().slice(0, maximum);
+  return allowBlank ? text : (text || limitedText(fallback, "", maximum));
+}
+
+function safeWebUrl(value, fallback = "") {
+  const text = limitedText(value, fallback, 2_000);
+  if (!text) return "";
+  try {
+    const parsed = new URL(text);
+    return ["http:", "https:"].includes(parsed.protocol) ? parsed.toString() : "";
+  } catch {
+    return "";
+  }
+}
+
+function boundedInteger(value, fallback, minimum, maximum) {
+  const number = Math.round(Number(value));
+  return Number.isFinite(number) ? Math.min(maximum, Math.max(minimum, number)) : fallback;
+}
+
+function boundedCost(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.min(1_000_000, Math.max(0, number)) : fallback;
+}
+
+function normalizePlanDay(value) {
+  const day = limitedText(value, "周六", 20);
+  if (day.includes("周五") || day.includes("星期五")) return "周五晚上";
+  if (day.includes("周日") || day.includes("星期日") || day.includes("周天")) return "周日";
+  return "周六";
+}
+
+function sanitizeFinalPlan(input, current) {
+  const source = input && typeof input === "object" ? input : {};
+  const previous = current && typeof current === "object" ? current : {};
+  const stay = source.stay && typeof source.stay === "object" ? source.stay : {};
+  const previousStay = previous.stay && typeof previous.stay === "object" ? previous.stay : {};
+  const itinerary = Array.isArray(source.itinerary) ? source.itinerary.slice(0, 100) : (previous.itinerary || []);
+  const reservations = Array.isArray(source.reservations) ? source.reservations.slice(0, 100) : (previous.reservations || []);
+
+  return {
+    ...previous,
+    version: "excel-home-v1",
+    title: submittedText(source, "title", previous.title || "6 人扬州周末旅行", 120, false),
+    destination: submittedText(source, "destination", previous.destination || "扬州", 80, false),
+    dates: submittedText(source, "dates", previous.dates || "待团队确认", 120),
+    schedule: submittedText(source, "schedule", previous.schedule || "周五晚抵达 · 周日傍晚返程", 160),
+    people: boundedInteger(source.people, boundedInteger(previous.people, 6, 1, 50), 1, 50),
+    nights: boundedInteger(source.nights, boundedInteger(previous.nights, 2, 1, 30), 1, 30),
+    perPersonBudget: submittedText(source, "perPersonBudget", previous.perPersonBudget || "待团队确认", 80),
+    summary: submittedText(source, "summary", previous.summary || "", 1_000),
+    stay: {
+      name: submittedText(stay, "name", previousStay.name || "待选择真实民宿", 160),
+      address: submittedText(stay, "address", previousStay.address || "待补充民宿详细地址", 300),
+      capacity: submittedText(stay, "capacity", previousStay.capacity || "目标 6 人", 160),
+      roomsBeds: submittedText(stay, "roomsBeds", previousStay.roomsBeds || "待确认", 240),
+      twoNightTotal: submittedText(stay, "twoNightTotal", previousStay.twoNightTotal || "待确认", 120),
+      checkInOut: submittedText(stay, "checkInOut", previousStay.checkInOut || "待确认", 200),
+      barbecue: submittedText(stay, "barbecue", previousStay.barbecue || "待确认", 300),
+      bbqEquipment: submittedText(stay, "bbqEquipment", previousStay.bbqEquipment || "待确认", 400),
+      breakfast: submittedText(stay, "breakfast", previousStay.breakfast || "待确认", 400),
+      sourceUrl: Object.prototype.hasOwnProperty.call(stay, "sourceUrl") ? safeWebUrl(stay.sourceUrl) : safeWebUrl(previousStay.sourceUrl || ""),
+    },
+    itinerary: itinerary.map((raw, index) => {
+      const item = raw && typeof raw === "object" ? raw : {};
+      return {
+        day: normalizePlanDay(item.day),
+        time: submittedText(item, "time", "", 30),
+        endTime: submittedText(item, "endTime", "", 30),
+        category: submittedText(item, "category", "安排", 60, false),
+        title: submittedText(item, "title", `新增安排 ${index + 1}`, 160, false),
+        subtitle: submittedText(item, "subtitle", "", 800),
+        address: submittedText(item, "address", "待补充", 300),
+        transport: submittedText(item, "transport", "待补充", 300),
+        cost: boundedCost(item.cost),
+        bookingStatus: submittedText(item, "bookingStatus", "待确认", 80),
+        sourceUrl: safeWebUrl(item.sourceUrl),
+        note: submittedText(item, "note", "", 500),
+        sourceId: submittedText(item, "sourceId", "", 120),
+      };
+    }),
+    reservations: reservations.map((raw) => {
+      const item = raw && typeof raw === "object" ? raw : {};
+      return {
+        id: limitedText(item.id, `reserve-${randomUUID()}`, 120),
+        item: submittedText(item, "item", "新增待办", 200, false),
+        type: submittedText(item, "type", "待分类", 60),
+        targetTime: submittedText(item, "targetTime", "待确认", 120),
+        status: submittedText(item, "status", "待确认", 80),
+        owner: submittedText(item, "owner", "待认领", 80),
+        deadline: submittedText(item, "deadline", "待确认", 120),
+        note: submittedText(item, "note", "", 500),
+      };
+    }),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 function normalizeState(raw) {
   const state = raw && typeof raw === "object" ? raw : {};
   const hasWeekendPlan = state.tripProfile?.planVersion === defaultTripProfile.planVersion;
@@ -1186,6 +1291,20 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === "GET" && url.pathname === "/api/state") {
       return sendJson(response, 200, await stateForClient());
+    }
+    if (request.method === "POST" && url.pathname === "/api/final-plan") {
+      const body = await readBody(request);
+      const state = await readState();
+      const baseUpdatedAt = limitedText(body.baseUpdatedAt, "", 80);
+      if (baseUpdatedAt && baseUpdatedAt !== state.finalPlan.updatedAt) {
+        return sendJson(response, 409, {
+          error: "这份方案刚刚被其他人或 Excel 更新过。请刷新后再编辑，避免覆盖最新内容。",
+          state: await stateForClient(),
+        });
+      }
+      state.finalPlan = sanitizeFinalPlan(body.finalPlan, state.finalPlan);
+      await syncToExcel(state);
+      return sendJson(response, 200, { ok: true, state: await stateForClient() });
     }
     if (request.method === "GET" && url.pathname === "/api/download/excel") {
       const bytes = await fs.readFile(workbookPath);

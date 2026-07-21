@@ -196,6 +196,10 @@ function importantDetails(place: Place) {
   return [["涉及区域", place.area], ["数据状态", place.dataStatus]];
 }
 
+function clonePlan(plan: FinalPlan): FinalPlan {
+  return JSON.parse(JSON.stringify(plan)) as FinalPlan;
+}
+
 export default function Home() {
   const [state, setState] = useState<AppState>(EMPTY_STATE);
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number][0]>("plan");
@@ -208,6 +212,8 @@ export default function Home() {
   const [message, setMessage] = useState("");
   const [libraryFilter, setLibraryFilter] = useState("全部");
   const [backendBase, setBackendBase] = useState("http://localhost:8787");
+  const [draftPlan, setDraftPlan] = useState<FinalPlan | null>(null);
+  const [savingPlan, setSavingPlan] = useState(false);
 
   async function refresh(silent = false) {
     try {
@@ -237,18 +243,24 @@ export default function Home() {
 
   const finalPlan = state.finalPlan || EMPTY_STATE.finalPlan;
   const finalFields = useMemo(() => [
+    finalPlan.title,
     finalPlan.destination,
     finalPlan.dates,
     finalPlan.schedule,
     finalPlan.people,
     finalPlan.nights,
     finalPlan.perPersonBudget,
+    finalPlan.summary,
     finalPlan.stay.name,
     finalPlan.stay.address,
+    finalPlan.stay.capacity,
     finalPlan.stay.roomsBeds,
     finalPlan.stay.twoNightTotal,
+    finalPlan.stay.checkInOut,
     finalPlan.stay.barbecue,
+    finalPlan.stay.bbqEquipment,
     finalPlan.stay.breakfast,
+    finalPlan.stay.sourceUrl,
   ], [finalPlan]);
   const finalProgress = useMemo(() => ({
     confirmed: finalFields.filter((item) => !isPending(item)).length,
@@ -297,6 +309,36 @@ export default function Home() {
     } catch { setMessage("暂时无法读取 Excel，请确认文件没有被移动或占用。"); }
   }
 
+  function startPlanEditing() {
+    setDraftPlan(clonePlan(finalPlan));
+    setMessage("");
+  }
+
+  async function savePlan() {
+    if (!draftPlan) return;
+    setSavingPlan(true);
+    setMessage("");
+    try {
+      const response = await fetch(`${apiBase()}/api/final-plan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ finalPlan: draftPlan, baseUpdatedAt: draftPlan.updatedAt }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        if (result.state) setState(result.state);
+        throw new Error(result.error || "保存失败");
+      }
+      setState(result.state);
+      setDraftPlan(null);
+      setMessage("已保存：网页和本地 Excel 已同步更新。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "保存失败，请稍后重试。");
+    } finally {
+      setSavingPlan(false);
+    }
+  }
+
   return (
     <main>
       <header className="topbar">
@@ -307,11 +349,13 @@ export default function Home() {
 
       {message && <div className="toast" role="status"><span>{message}</span><button onClick={() => setMessage("")} aria-label="关闭提示">×</button></div>}
 
+      {draftPlan && <PlanEditor plan={draftPlan} saving={savingPlan} onChange={setDraftPlan} onCancel={() => setDraftPlan(null)} onSave={savePlan} />}
+
       {activeTab === "plan" && <>
         <section className="excel-source-banner">
           <div className="shell">
-            <div><span className="excel-source-icon">X</span><p><strong>网页内容来自 Excel 的第一张表「行程首页」</strong><small>黄色单元格可以直接修改；保存后约 4 秒自动更新网页，也可以手动同步。</small></p></div>
-            <div className="excel-source-actions"><a className="small-button" href={`${backendBase}/api/download/excel`}>打开 Excel</a><button className="primary" onClick={syncExcel}>同步最新修改</button></div>
+            <div><span className="excel-source-icon">↔</span><p><strong>网页与 Excel「行程首页」双向同步</strong><small>可以直接编辑网页；保存后会立即写入本地 Excel。改 Excel 后也会自动更新网页。</small></p></div>
+            <div className="excel-source-actions"><button className="primary edit-plan-button" onClick={startPlanEditing}>编辑最终方案</button><a className="small-button" href={`${backendBase}/api/download/excel`}>打开 Excel</a><button className="small-button" onClick={syncExcel}>同步 Excel</button></div>
           </div>
         </section>
 
@@ -438,6 +482,145 @@ export default function Home() {
       <footer><div className="shell"><span>下扬州 · 团队旅行共创台</span><span>本地数据 · Excel 可编辑 · DeepSeek 整理</span></div></footer>
     </main>
   );
+}
+
+function PlanEditor({ plan, saving, onChange, onCancel, onSave }: {
+  plan: FinalPlan;
+  saving: boolean;
+  onChange: (plan: FinalPlan) => void;
+  onCancel: () => void;
+  onSave: () => void;
+}) {
+  function updatePlan(field: keyof FinalPlan, value: string | number) {
+    onChange({ ...plan, [field]: value } as FinalPlan);
+  }
+
+  function updateStay(field: keyof FinalPlan["stay"], value: string) {
+    onChange({ ...plan, stay: { ...plan.stay, [field]: value } });
+  }
+
+  function updateItinerary(index: number, field: keyof FinalPlan["itinerary"][number], value: string | number) {
+    const itinerary = plan.itinerary.map((item, itemIndex) => itemIndex === index ? { ...item, [field]: value } : item);
+    onChange({ ...plan, itinerary });
+  }
+
+  function updateReservation(index: number, field: keyof Reservation, value: string) {
+    const reservations = plan.reservations.map((item, itemIndex) => itemIndex === index ? { ...item, [field]: value } : item);
+    onChange({ ...plan, reservations });
+  }
+
+  function addItinerary() {
+    onChange({
+      ...plan,
+      itinerary: [...plan.itinerary, { day: "周六", time: "", endTime: "", category: "安排", title: "新增安排", subtitle: "", address: "待补充", transport: "待补充", cost: 0, bookingStatus: "待确认", sourceUrl: "", sourceId: "", note: "" }],
+    });
+  }
+
+  function addReservation() {
+    onChange({
+      ...plan,
+      reservations: [...plan.reservations, { id: `reserve-web-${Date.now()}`, item: "新增待办", type: "待分类", targetTime: "待确认", status: "待确认", owner: "待认领", deadline: "待确认", note: "" }],
+    });
+  }
+
+  return <div className="plan-editor-overlay" role="dialog" aria-modal="true" aria-labelledby="plan-editor-title">
+    <form className="plan-editor" onSubmit={(event) => { event.preventDefault(); onSave(); }}>
+      <header className="plan-editor-header">
+        <div><p className="eyebrow">WEB EDITOR · EXCEL SYNC</p><h1 id="plan-editor-title">编辑最终方案</h1><span>保存后会立即更新网站，并写入本地 Excel 第一张表「行程首页」。</span></div>
+        <div className="plan-editor-actions"><button type="button" className="small-button" onClick={onCancel} disabled={saving}>取消</button><button type="submit" className="primary" disabled={saving}>{saving ? "正在同步……" : "保存并同步 Excel"}</button></div>
+      </header>
+
+      <div className="plan-editor-body">
+        <section className="editor-section">
+          <div className="editor-section-title"><b>01</b><div><h2>基础信息</h2><p>控制网站标题、日期、人数和顶部介绍。</p></div></div>
+          <div className="editor-grid basic-grid">
+            <EditorField label="方案标题" value={plan.title} onChange={(value) => updatePlan("title", value)} wide />
+            <EditorField label="目的地" value={plan.destination} onChange={(value) => updatePlan("destination", value)} />
+            <EditorField label="出行日期" value={plan.dates} onChange={(value) => updatePlan("dates", value)} />
+            <EditorField label="行程结构" value={plan.schedule} onChange={(value) => updatePlan("schedule", value)} wide />
+            <EditorField label="同行人数" value={plan.people} inputType="number" onChange={(value) => updatePlan("people", Number(value) || 1)} />
+            <EditorField label="住宿晚数" value={plan.nights} inputType="number" onChange={(value) => updatePlan("nights", Number(value) || 1)} />
+            <EditorField label="人均预算" value={plan.perPersonBudget} onChange={(value) => updatePlan("perPersonBudget", value)} />
+            <EditorField label="方案说明" value={plan.summary} onChange={(value) => updatePlan("summary", value)} multiline wide />
+          </div>
+        </section>
+
+        <section className="editor-section">
+          <div className="editor-section-title"><b>02</b><div><h2>住宿信息</h2><p>民宿名称、地址、烧烤和早餐都会同步到 Excel。</p></div></div>
+          <div className="editor-grid">
+            <EditorField label="民宿名称" value={plan.stay.name} onChange={(value) => updateStay("name", value)} wide />
+            <EditorField label="详细地址" value={plan.stay.address} onChange={(value) => updateStay("address", value)} wide />
+            <EditorField label="适合人数" value={plan.stay.capacity} onChange={(value) => updateStay("capacity", value)} />
+            <EditorField label="房间 / 床位" value={plan.stay.roomsBeds} onChange={(value) => updateStay("roomsBeds", value)} />
+            <EditorField label="两晚总价" value={plan.stay.twoNightTotal} onChange={(value) => updateStay("twoNightTotal", value)} />
+            <EditorField label="入住 / 退房" value={plan.stay.checkInOut} onChange={(value) => updateStay("checkInOut", value)} />
+            <EditorField label="能否烧烤" value={plan.stay.barbecue} onChange={(value) => updateStay("barbecue", value)} multiline />
+            <EditorField label="烧烤设备 / 费用" value={plan.stay.bbqEquipment} onChange={(value) => updateStay("bbqEquipment", value)} multiline />
+            <EditorField label="早餐安排" value={plan.stay.breakfast} onChange={(value) => updateStay("breakfast", value)} multiline wide />
+            <EditorField label="民宿原始链接" value={plan.stay.sourceUrl} inputType="url" onChange={(value) => updateStay("sourceUrl", value)} wide />
+          </div>
+        </section>
+
+        <section className="editor-section">
+          <div className="editor-section-title with-action"><b>03</b><div><h2>周末行程</h2><p>可以增加、删除和调整每一项安排。</p></div><button type="button" className="small-button" onClick={addItinerary}>＋ 添加行程</button></div>
+          <div className="editor-card-list">
+            {plan.itinerary.map((item, index) => <article className="itinerary-editor-card" key={`${item.day}-${index}`}>
+              <header><strong>{String(index + 1).padStart(2, "0")} · {item.title || "未命名安排"}</strong><button type="button" className="remove-button" onClick={() => onChange({ ...plan, itinerary: plan.itinerary.filter((_, itemIndex) => itemIndex !== index) })}>删除</button></header>
+              <div className="editor-grid compact-grid">
+                <label className="editor-field"><span>日期</span><select value={item.day} onChange={(event) => updateItinerary(index, "day", event.target.value)}><option>周五晚上</option><option>周六</option><option>周日</option></select></label>
+                <EditorField label="开始时间" value={item.time} inputType="time" onChange={(value) => updateItinerary(index, "time", value)} />
+                <EditorField label="结束时间" value={item.endTime} inputType="time" onChange={(value) => updateItinerary(index, "endTime", value)} />
+                <EditorField label="类型" value={item.category} onChange={(value) => updateItinerary(index, "category", value)} />
+                <EditorField label="安排名称" value={item.title} onChange={(value) => updateItinerary(index, "title", value)} wide />
+                <EditorField label="详细说明" value={item.subtitle} onChange={(value) => updateItinerary(index, "subtitle", value)} multiline wide />
+                <EditorField label="地址" value={item.address} onChange={(value) => updateItinerary(index, "address", value)} wide />
+                <EditorField label="交通" value={item.transport} onChange={(value) => updateItinerary(index, "transport", value)} />
+                <EditorField label="费用 / 人" value={item.cost} inputType="number" onChange={(value) => updateItinerary(index, "cost", Number(value) || 0)} />
+                <EditorField label="预订状态" value={item.bookingStatus} onChange={(value) => updateItinerary(index, "bookingStatus", value)} />
+                <EditorField label="来源链接" value={item.sourceUrl} inputType="url" onChange={(value) => updateItinerary(index, "sourceUrl", value)} wide />
+                <EditorField label="备注" value={item.note} onChange={(value) => updateItinerary(index, "note", value)} multiline wide />
+              </div>
+            </article>)}
+            {!plan.itinerary.length && <div className="editor-empty">还没有行程，点击“添加行程”开始安排。</div>}
+          </div>
+        </section>
+
+        <section className="editor-section">
+          <div className="editor-section-title with-action"><b>04</b><div><h2>确认与预订</h2><p>网站只记录进度，不会自动付款或下单。</p></div><button type="button" className="small-button" onClick={addReservation}>＋ 添加待办</button></div>
+          <div className="editor-card-list">
+            {plan.reservations.map((item, index) => <article className="reservation-editor-card" key={item.id || index}>
+              <header><strong>{item.item || "未命名待办"}</strong><button type="button" className="remove-button" onClick={() => onChange({ ...plan, reservations: plan.reservations.filter((_, itemIndex) => itemIndex !== index) })}>删除</button></header>
+              <div className="editor-grid compact-grid">
+                <EditorField label="待办事项" value={item.item} onChange={(value) => updateReservation(index, "item", value)} wide />
+                <EditorField label="类型" value={item.type} onChange={(value) => updateReservation(index, "type", value)} />
+                <EditorField label="计划时间" value={item.targetTime} onChange={(value) => updateReservation(index, "targetTime", value)} />
+                <EditorField label="当前状态" value={item.status} onChange={(value) => updateReservation(index, "status", value)} />
+                <EditorField label="负责人" value={item.owner} onChange={(value) => updateReservation(index, "owner", value)} />
+                <EditorField label="完成期限" value={item.deadline} onChange={(value) => updateReservation(index, "deadline", value)} />
+                <EditorField label="核对说明" value={item.note} onChange={(value) => updateReservation(index, "note", value)} multiline wide />
+              </div>
+            </article>)}
+            {!plan.reservations.length && <div className="editor-empty">还没有预订待办，可以从住宿、早餐或密室开始添加。</div>}
+          </div>
+        </section>
+      </div>
+
+      <footer className="plan-editor-footer"><span>本次保存会同时覆盖网站最终方案和 Excel「行程首页」。</span><div className="plan-editor-actions"><button type="button" className="small-button" onClick={onCancel} disabled={saving}>取消</button><button type="submit" className="primary" disabled={saving}>{saving ? "正在同步……" : "保存并同步 Excel"}</button></div></footer>
+    </form>
+  </div>;
+}
+
+function EditorField({ label, value, onChange, inputType = "text", multiline = false, wide = false }: {
+  label: string;
+  value: string | number;
+  onChange: (value: string) => void;
+  inputType?: string;
+  multiline?: boolean;
+  wide?: boolean;
+}) {
+  return <label className={`editor-field ${wide ? "wide" : ""}`}><span>{label}</span>{multiline
+    ? <textarea value={value} onChange={(event) => onChange(event.target.value)} />
+    : <input type={inputType} min={inputType === "number" ? 0 : undefined} value={value} onChange={(event) => onChange(event.target.value)} />}</label>;
 }
 
 function StatusPill({ value }: { value: unknown }) {

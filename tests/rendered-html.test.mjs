@@ -21,7 +21,8 @@ test("server renders the Yangzhou trip workspace", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>下扬州 · 团队旅行共创台<\/title>/);
-  assert.match(html, /网页内容来自 Excel 的第一张表/);
+  assert.match(html, /网页与 Excel「行程首页」双向同步/);
+  assert.match(html, /编辑最终方案/);
   assert.match(html, /最终方案信息/);
   assert.match(html, /最终方案和候选资料已经分开/);
   assert.match(html, /已确定/);

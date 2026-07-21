@@ -738,7 +738,7 @@
   "settings": {
     "provider": "DeepSeek · deepseek-v4-flash",
     "workbookPath": "outputs/019f7eda-a998-7660-a73d-e43b3af67965/扬州团队旅行攻略.xlsx",
-    "lastExcelSync": "2026-07-21T02:44:20.034Z"
+    "lastExcelSync": "2026-07-21T03:25:24.296Z"
   },
   "tripProfile": {
     "planVersion": "weekend-v2",
@@ -1068,6 +1068,6 @@
         "note": "以官方开放时间和预约规则为准"
       }
     ],
-    "updatedAt": "2026-07-21T02:44:20.033Z"
+    "updatedAt": "2026-07-21T03:25:24.295Z"
   }
 }
