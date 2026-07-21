@@ -46,7 +46,7 @@ npm run local
 服务器安装 Git 和 Docker 后：
 
 ```bash
-git clone <你的 GitHub 仓库地址>
+git clone https://github.com/ykh-1412/yangzhou-trip-studio.git
 cd yangzhou-trip-studio
 cp .env.example .env
 ```
@@ -82,7 +82,7 @@ docker compose up -d --build
 ## 不使用 Docker
 
 ```bash
-git clone <你的 GitHub 仓库地址>
+git clone https://github.com/ykh-1412/yangzhou-trip-studio.git
 cd yangzhou-trip-studio
 cp .env.example .env
 npm ci
