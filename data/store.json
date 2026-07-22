@@ -10,6 +10,42 @@
   },
   "links": [
     {
+      "id": "text-b5a38d52e37e",
+      "sourceType": "文字",
+      "inputText": "团队想找适合6个人一起玩的中恐密室，难度中等，最好有NPC互动，单人预算200元以内，位置在扬州市区，周日上午能预约。",
+      "url": "",
+      "title": "团队需求｜团队想找适合6个人一起玩的中恐密室，难度中等，最好有NPC互动，单人预算200元以内…",
+      "category": "密室",
+      "status": "已写入Excel",
+      "readStatus": "文字已接收",
+      "organizedStatus": "已整理",
+      "factsFound": [
+        "适合6人",
+        "中恐",
+        "难度中等",
+        "有NPC互动",
+        "单人预算200元以内",
+        "位置在扬州市区",
+        "周日上午能预约"
+      ],
+      "missingFields": [
+        "具体密室名称",
+        "地址",
+        "营业时间",
+        "取消规则",
+        "是否可包场"
+      ],
+      "resultNote": "已整理；仍有 5 项待核实",
+      "submitter": "Codex 文字流程测试",
+      "note": "验证文字诉求经 DeepSeek 整理并写入 Excel",
+      "createdAt": "2026-07-22T02:28:31.243Z",
+      "updatedAt": "2026-07-22T02:31:56.463Z",
+      "summary": "团队希望找扬州市区的中恐密室，难度中等，有NPC互动，单人预算200元以内，周日上午可预约，适合6人。",
+      "model": "DeepSeek · deepseek-v4-flash",
+      "error": "",
+      "subCategory": "恐怖密室"
+    },
+    {
       "id": "link-0c57f71b3b10",
       "url": "http://xhslink.com/o/5HrEeOTXkGr",
       "title": "扬州美食攻略｜10大bi吃，有人同意吗？ - 小红书",
@@ -33,7 +69,9 @@
         "价格或预约等动态信息仍需核实"
       ],
       "resultNote": "已生成候选资料并写入 Excel",
-      "subCategory": "美食攻略"
+      "subCategory": "美食攻略",
+      "sourceType": "链接",
+      "inputText": ""
     },
     {
       "id": "link-df4b1ba42b06",
@@ -61,7 +99,9 @@
         "餐饮具体信息"
       ],
       "resultNote": "已整理；仍有 3 项待核实",
-      "subCategory": "综合攻略"
+      "subCategory": "综合攻略",
+      "sourceType": "链接",
+      "inputText": ""
     },
     {
       "id": "seed-guide-001",
@@ -86,10 +126,115 @@
         "价格或预约等动态信息仍需核实"
       ],
       "resultNote": "已生成候选资料并写入 Excel",
-      "subCategory": "行程攻略"
+      "subCategory": "行程攻略",
+      "sourceType": "链接",
+      "inputText": ""
     }
   ],
   "places": [
+    {
+      "id": "place-74c855d3-c1e8-4eb5-b6fb-0e99a441741a",
+      "sourceId": "text-b5a38d52e37e",
+      "name": "6人中恐密室需求",
+      "category": "密室",
+      "subCategory": "恐怖密室",
+      "featureTags": [
+        "中恐",
+        "NPC互动",
+        "适合6人",
+        "密室",
+        "真人互动",
+        "需要预约"
+      ],
+      "area": "扬州市区",
+      "price": 200,
+      "priceLabel": "单人预算200元以内",
+      "duration": "周日上午场次",
+      "score": 3.5,
+      "tags": [
+        "中恐",
+        "NPC互动",
+        "6人",
+        "扬州市区",
+        "周日上午"
+      ],
+      "pros": [
+        "明确预算和恐怖程度",
+        "有NPC互动需求",
+        "时间明确"
+      ],
+      "cons": [
+        "未指定具体密室名称",
+        "未确认是否有6人场次"
+      ],
+      "selected": false,
+      "votes": {},
+      "decisionStatus": "待比较",
+      "manualNote": "",
+      "manualOverrides": {},
+      "sourceUrl": "",
+      "dataStatus": "团队文字需求，具体商户待匹配",
+      "details": {
+        "address": "待核实",
+        "locationHighlights": "待核实",
+        "distanceToCore": "待核实",
+        "capacity": "待核实",
+        "roomType": "待核实",
+        "rooms": "待核实",
+        "beds": "待核实",
+        "bedTypes": "待核实",
+        "bathrooms": "待核实",
+        "twoNightTotal": "待核实",
+        "extraFees": "待核实",
+        "deposit": "待核实",
+        "environment": "待核实",
+        "entireRental": "待核实",
+        "kitchen": "待核实",
+        "barbecue": "待核实",
+        "bbqEquipment": "待核实",
+        "breakfast": "待核实",
+        "parking": "待核实",
+        "transport": "待核实",
+        "checkIn": "待核实",
+        "checkOut": "待核实",
+        "bookingStatus": "待核实",
+        "reservation": "周日上午可预约",
+        "openingHours": "待核实",
+        "difficulty": "中等",
+        "horrorLevel": "中恐",
+        "usage": "待分配",
+        "cancellationPolicy": "待核实",
+        "evidence": "团队文字诉求：适合6人，中恐，难度中等，有NPC互动，单人预算200元以内，扬州市区，周日上午能预约。",
+        "cuisineType": "待核实",
+        "signatureDishes": "待核实",
+        "sixPersonTotal": "待核实",
+        "privateRoom": "待核实",
+        "queueInfo": "待核实",
+        "groupSuitability": "待核实",
+        "themeName": "待核实",
+        "escapeStyle": "待核实",
+        "venueSize": "待核实",
+        "roomCount": "待核实",
+        "minPlayers": "待核实",
+        "maxPlayers": "待核实",
+        "sixPersonSession": "待核实",
+        "npcInteraction": "是",
+        "physicalIntensity": "待核实",
+        "costume": "待核实",
+        "leisureFacilities": "待核实",
+        "packageInfo": "待核实",
+        "overnight": "待核实",
+        "includedMeals": "待核实",
+        "restArea": "待核实",
+        "genderArrangement": "待核实",
+        "serviceRestrictions": "待核实",
+        "attractionType": "待核实",
+        "indoorOutdoor": "待核实",
+        "weatherImpact": "待核实",
+        "ticketInfo": "待核实",
+        "recommendedDuration": "待核实"
+      }
+    },
     {
       "id": "place-3380833f-f6d0-41eb-9718-7edde5088a6d",
       "sourceId": "link-0c57f71b3b10",
@@ -1185,7 +1330,7 @@
   "settings": {
     "provider": "DeepSeek · deepseek-v4-flash",
     "workbookPath": "outputs/019f7eda-a998-7660-a73d-e43b3af67965/扬州团队旅行攻略.xlsx",
-    "lastExcelSync": "2026-07-21T09:47:31.406Z"
+    "lastExcelSync": "2026-07-22T02:35:00.936Z"
   },
   "tripProfile": {
     "planVersion": "weekend-v2",

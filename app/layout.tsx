@@ -9,7 +9,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const protocol = forwardedProtocol === "https" ? "https" : "http";
   const base = new URL(`${protocol}://${host}`);
   const title = "下扬州 · 团队旅行共创台";
-  const description = "6 人扬州周末旅行共创：收集链接、DeepSeek 整理、Excel 核对，并安排两晚住宿、烧烤、早餐和密室。";
+  const description = "6 人扬州周末旅行共创：提交链接或直接写想法，交给 DeepSeek 整理并写入 Excel，再一起筛选住宿、美食、密室和周末行程。";
   return {
     metadataBase: base,
     title,

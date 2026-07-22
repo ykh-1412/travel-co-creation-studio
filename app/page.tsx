@@ -7,6 +7,8 @@ type LinkStatus = "等待处理" | "正在读取" | "AI分析中" | "已写入Ex
 
 type LinkRecord = {
   id: string;
+  sourceType: "链接" | "文字";
+  inputText: string;
   url: string;
   title: string;
   category: string;
@@ -204,7 +206,7 @@ const EMPTY_STATE: AppState = {
   settings: { provider: "演示分析", workbookPath: "", lastExcelSync: "" },
 };
 
-const tabs = [["plan", "看行程"], ["collect", "投递链接"], ["library", "重点候选"], ["manage", "Excel 管理"]] as const;
+const tabs = [["plan", "看行程"], ["collect", "投递想法"], ["library", "重点候选"], ["manage", "Excel 管理"]] as const;
 const categories = ["自动识别", "攻略文章", "住宿", "餐饮", "密室", "室内休闲", "景点户外"];
 const mainFilters = ["全部", "住宿", "餐饮", "密室", "休闲娱乐", "景点", "攻略"];
 const voteChoices: VoteChoice[] = ["想去", "可以", "不考虑"];
@@ -216,8 +218,8 @@ function formatTime(value: string) {
 }
 
 function statusTone(status: string) {
-  if (["已写入Excel", "已整理", "成功读取", "已预订", "已完成", "已确定"].includes(status)) return "success";
-  if (["处理失败", "需要人工补充", "未整理", "读取失败", "读取受限", "待补充", "待确认", "待预订"].includes(status)) return "warning";
+  if (["已写入Excel", "已整理", "成功读取", "文字已接收", "已预订", "已完成", "已确定"].includes(status)) return "success";
+  if (["处理失败", "需要人工补充", "未整理", "读取失败", "读取受限", "文字解析失败", "待补充", "待确认", "待预订"].includes(status)) return "warning";
   if (["正在读取", "AI分析中", "整理中", "等待读取", "等待处理"].includes(status)) return "active";
   return "muted";
 }
@@ -273,7 +275,9 @@ function clonePlan(plan: FinalPlan): FinalPlan {
 export default function Home() {
   const [state, setState] = useState<AppState>(EMPTY_STATE);
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number][0]>("plan");
+  const [submissionMode, setSubmissionMode] = useState<"link" | "text">("link");
   const [urls, setUrls] = useState("");
+  const [ideaText, setIdeaText] = useState("");
   const [category, setCategory] = useState("自动识别");
   const [submitter, setSubmitter] = useState("团队成员");
   const [nickname, setNickname] = useState("团队成员");
@@ -386,19 +390,28 @@ export default function Home() {
     rejected: state.places.filter((place) => place.decisionStatus === "淘汰").length,
   }), [state.places]);
 
-  async function submitLinks(event: FormEvent) {
+  async function submitIdeas(event: FormEvent) {
     event.preventDefault();
     const list = urls.split(/\n|\s+/).map((item) => item.trim()).filter(Boolean);
-    if (!list.length) return setMessage("请先粘贴至少一个链接。");
+    const text = ideaText.trim();
+    if (submissionMode === "link" && !list.length) return setMessage("请先粘贴至少一个链接。");
+    if (submissionMode === "text" && text.length < 3) return setMessage("请写下更具体的旅行想法。");
     setSending(true);
     setMessage("");
     try {
-      const response = await fetch(`${apiBase()}/api/links`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ urls: list, category, submitter, note }) });
+      const response = await fetch(`${apiBase()}/api/submissions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ urls: submissionMode === "link" ? list : [], text: submissionMode === "text" ? text : "", category, submitter, note }),
+      });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "提交失败");
-      setUrls("");
+      if (submissionMode === "link") setUrls("");
+      else setIdeaText("");
       setNote("");
-      setMessage(`已接收 ${result.created} 个新链接；打不开的链接也会保留在处理报告中。`);
+      setMessage(submissionMode === "text"
+        ? `已接收 ${result.textCreated || result.created} 条文字想法，DeepSeek 正在整理。`
+        : `已接收 ${result.linkCreated || result.created} 个新链接；打不开的链接也会保留。`);
       await refresh(true);
       setActiveTab("collect");
     } catch (error) {
@@ -494,7 +507,7 @@ export default function Home() {
               <p className="eyebrow">团队最终行程</p>
               <h1>{finalPlan.title}</h1>
               <p className="simple-summary">{finalPlan.summary}</p>
-              <div className="simple-actions"><button className="primary" onClick={() => setActiveTab("collect")}>＋ 投递一个好链接</button><button className="small-button" onClick={() => setActiveTab("library")}>一起选候选</button></div>
+              <div className="simple-actions"><button className="primary" onClick={() => setActiveTab("collect")}>＋ 投递链接或想法</button><button className="small-button" onClick={() => setActiveTab("library")}>一起选候选</button></div>
             </div>
             <aside className="trip-at-a-glance">
               <div><span>什么时候</span><strong className={isPending(finalPlan.dates) ? "pending-value" : ""}>{finalPlan.dates}</strong></div>
@@ -529,24 +542,27 @@ export default function Home() {
       </>}
 
       {activeTab === "collect" && <section className="shell workspace-page">
-        <div className="page-title"><p className="eyebrow">投递灵感</p><h1>粘贴链接，后台按类型拆成专属数据。</h1><p>餐饮会分烧烤、火锅、炒菜和早茶；密室会整理恐怖程度、难度、规模与六人价格；汗蒸、桑拿、洗浴和景点也有各自字段。</p></div>
-        <div className="report-summary"><div><span>全部链接</span><strong>{stats.links}</strong></div><div className="good"><span>已成功整理</span><strong>{stats.completed}</strong></div><div className="warn"><span>未整理</span><strong>{stats.unorganized}</strong></div><div><span>处理中</span><strong>{stats.processing}</strong></div></div>
+        <div className="page-title"><p className="eyebrow">投递灵感</p><h1>有链接就粘贴，没有链接就直接说想法。</h1><p>DeepSeek 会把“想住能烧烤的六人民宿”“想玩中恐密室”这类文字，和网页链接一样整理成分类、条件、缺失项与候选资料，再写进 Excel。</p></div>
+        <div className="report-summary"><div><span>全部投递</span><strong>{stats.links}</strong></div><div className="good"><span>已成功整理</span><strong>{stats.completed}</strong></div><div className="warn"><span>未整理</span><strong>{stats.unorganized}</strong></div><div><span>处理中</span><strong>{stats.processing}</strong></div></div>
         <div className="collect-layout">
-          <form className="collect-form" onSubmit={submitLinks}>
-            <label htmlFor="urls">链接列表</label><textarea id="urls" value={urls} onChange={(event) => setUrls(event.target.value)} placeholder={"粘贴攻略、民宿、密室或餐厅链接……\n每行一个，也可以一次粘贴多个"} />
+          <form className="collect-form" onSubmit={submitIdeas}>
+            <div className="submission-switch" role="group" aria-label="选择投递方式"><button type="button" className={submissionMode === "link" ? "selected" : ""} aria-pressed={submissionMode === "link"} onClick={() => setSubmissionMode("link")}><b>粘贴链接</b><span>攻略、民宿、餐厅或活动页面</span></button><button type="button" className={submissionMode === "text" ? "selected" : ""} aria-pressed={submissionMode === "text"} onClick={() => setSubmissionMode("text")}><b>直接写想法</b><span>没有链接，也能表达自己的诉求</span></button></div>
+            {submissionMode === "link"
+              ? <><label htmlFor="urls">链接列表</label><textarea id="urls" value={urls} onChange={(event) => setUrls(event.target.value)} placeholder={"粘贴攻略、民宿、密室或餐厅链接……\n每行一个，也可以一次粘贴多个"} /></>
+              : <><label htmlFor="ideaText">你想要什么</label><textarea id="ideaText" value={ideaText} onChange={(event) => setIdeaText(event.target.value.slice(0, 4000))} placeholder={"例如：我想住环境安静的整租民宿，6 个人能住，周六晚上可以烧烤，最好靠近东关街，两晚总价不要太高。"} /><div className="text-counter">{ideaText.length} / 4000</div></>}
             <div className="form-row"><label>大概是什么<select value={category} onChange={(event) => setCategory(event.target.value)}>{categories.map((item) => <option key={item}>{item}</option>)}</select></label><label>你的昵称<input value={submitter} onChange={(event) => rememberNickname(event.target.value)} placeholder="例如：小王" /></label></div>
-            <label>重点关注<input value={note} onChange={(event) => setNote(event.target.value)} placeholder="例如：重点看 6 人能否住、周六能否烧烤" /></label>
-            <button className="primary wide" disabled={sending}>{sending ? "正在提交……" : "开始后台整理"}</button><p className="form-hint">需要登录、验证码或限制抓取的平台会标记为“读取受限 / 未整理”，系统不会编造内容。</p>
+            <label>补充说明（可选）<input value={note} onChange={(event) => setNote(event.target.value)} placeholder="例如：这是我最在意的条件，优先级比较高" /></label>
+            <button className="primary wide" disabled={sending}>{sending ? "正在提交……" : submissionMode === "text" ? "交给 DeepSeek 整理" : "开始读取并整理"}</button><p className="form-hint">文字会按“团队偏好”保存，不会冒充真实商户信息；链接若需要登录或验证码，会明确标记为读取受限。</p>
           </form>
-          <aside className="pipeline-card"><span className="paper-tag">提交后会发生什么</span><h3>先分类，再提取</h3>{["原始链接立刻进入 Excel 台账", "识别大类、子类和多个特征标签", "DeepSeek 按专属模板提取并等待你筛选"].map((item, index) => <div className="pipeline-step" key={item}><b>{String(index + 1).padStart(2, "0")}</b><span>{item}</span></div>)}<p className="pipeline-note">如果网页需要登录或验证码，会标记为“需要补充”，不会凭空编造。</p></aside>
+          <aside className="pipeline-card"><span className="paper-tag">提交后会发生什么</span><h3>原话保留，条件拆开</h3>{["链接或原始文字先进入投递台账", "DeepSeek 识别分类、预算和关键偏好", "结构化结果进入候选表，等待团队筛选"].map((item, index) => <div className="pipeline-step" key={item}><b>{String(index + 1).padStart(2, "0")}</b><span>{item}</span></div>)}<p className="pipeline-note">Excel 同时保留原始诉求与 AI 整理结果，方便以后核对和继续补充。</p></aside>
         </div>
-        <div className="task-panel"><div className="panel-heading"><div><h2>链接处理报告</h2><p>成功和失败都在这里；完整报告也已写入 Excel。</p></div><button className="small-button" onClick={() => refresh()}>刷新状态</button></div><div className="task-list">
-          {state.links.length === 0 && <div className="empty-state">还没有团队链接。提交第一个链接后，处理过程会显示在这里。</div>}
+        <div className="task-panel"><div className="panel-heading"><div><h2>投递处理报告</h2><p>链接和文字都会显示处理进度；完整记录也会写入 Excel。</p></div><button className="small-button" onClick={() => refresh()}>刷新状态</button></div><div className="task-list">
+          {state.links.length === 0 && <div className="empty-state">还没有团队投递。粘贴链接或写下第一个想法后，处理过程会显示在这里。</div>}
           {state.links.map((item) => <article className="task-report" key={item.id}>
-            <div className="task-report-main"><span className="source-icon">链</span><div><div className="task-title-line"><strong>{item.title || sourceName(item.url)}</strong><span>{item.category}{item.subCategory ? ` · ${item.subCategory}` : ""}</span></div><a href={item.url} target="_blank" rel="noreferrer">{item.url}</a><p>{item.resultNote}</p></div></div>
+            <div className="task-report-main"><span className="source-icon">{item.sourceType === "文字" ? "文" : "链"}</span><div><div className="task-title-line"><strong>{item.title || (item.sourceType === "文字" ? "团队文字需求" : sourceName(item.url))}</strong><span>{item.category}{item.subCategory ? ` · ${item.subCategory}` : ""}</span></div>{item.url ? <a href={item.url} target="_blank" rel="noreferrer">{item.url}</a> : <p className="task-source-text">“{item.inputText}”</p>}<p>{item.resultNote}</p></div></div>
             <div className="task-statuses"><span className={`status-badge ${statusTone(item.readStatus)}`}><i />{item.readStatus}</span><span className={`status-badge ${statusTone(item.organizedStatus)}`}><i />{item.organizedStatus}</span><small>{formatTime(item.updatedAt)}</small></div>
             <details className="task-details"><summary>查看整理详情</summary><div className="fact-columns"><div><b>已提取</b><p>{item.factsFound.length ? item.factsFound.join(" · ") : "暂无"}</p></div><div><b>还缺少</b><p>{item.missingFields.length ? item.missingFields.join(" · ") : "无明显缺失"}</p></div></div></details>
-            <div className="task-report-foot"><span>{item.submitter} · {item.model || "等待分配模型"}</span>{(item.organizedStatus === "未整理" || item.status === "处理失败") && <button className="small-button" onClick={() => retryLink(item.id)}>重新尝试</button>}</div>
+            <div className="task-report-foot"><span>{item.submitter} · {item.sourceType || "链接"} · {item.model || "等待分配模型"}</span>{(item.organizedStatus === "未整理" || item.status === "处理失败") && <button className="small-button" onClick={() => retryLink(item.id)}>重新尝试</button>}</div>
           </article>)}
         </div></div>
       </section>}
@@ -570,7 +586,7 @@ export default function Home() {
           <details className="candidate-details"><summary>查看更多资料</summary><div className="place-tags">{[...new Set([place.subCategory, ...place.featureTags, ...place.tags])].map((tag) => <span key={tag}>{tag}</span>)}</div>{place.keyMissing?.length ? <p className="candidate-missing"><b>缺失项：</b>{place.keyMissing.join(" · ")}</p> : null}{place.manualNote ? <p className="candidate-manual-note"><b>人工备注：</b>{place.manualNote}</p> : null}{Object.keys(place.manualOverrides || {}).length ? <p className="candidate-manual-note"><b>人工保护：</b>{Object.keys(place.manualOverrides || {}).length} 个字段不会被重新分析覆盖</p> : null}<div className="place-footer"><div><span>参考预算</span><strong>{place.priceLabel}</strong></div><div className="score"><span>推荐度</span><strong>{place.score.toFixed(1)}</strong></div></div><p className="data-state">数据状态：{place.dataStatus}</p></details>
           <div className="card-link-row">{place.details.address && !isPending(place.details.address) && <a href={mapSearchUrl(place.details.address)} target="_blank" rel="noreferrer">地图</a>}{place.sourceUrl && <a href={place.sourceUrl} target="_blank" rel="noreferrer">原始链接</a>}</div>
         </article>})}</div>
-        {!filteredPlaces.length && <div className="empty-state">当前筛选下没有重点候选，可以查看全部或继续投递链接。</div>}
+        {!filteredPlaces.length && <div className="empty-state">当前筛选下没有重点候选，可以查看全部或继续投递链接与想法。</div>}
       </section>}
 
       {activeTab === "manage" && <section className="shell workspace-page manage-page">
@@ -579,12 +595,12 @@ export default function Home() {
         <div className="excel-hero"><div className="excel-file-icon">X</div><div className="excel-file-info"><span>主操作文件</span><h2>扬州团队旅行攻略.xlsx</h2><p>打开后先看第二张「候选决策台」 · 最近同步：{formatTime(state.settings.lastExcelSync)}</p></div><div className="excel-actions"><a className="primary" href={`${backendBase}/api/download/excel`}>打开 Excel 决策台</a><button className="small-button" onClick={syncExcel}>立即读取修改</button></div></div>
 
         <div className="manage-choice-grid">
-          <article className="recommended-choice"><span>推荐流程</span><h2>先分类，再补全，最后定行程</h2><p>每类链接都有自己的比较字段，黄色单元格是你可以人工确认和修正的内容。</p><ol><li>在「候选决策台」按大类和子分类筛选</li><li>进入美食、密室、室内休闲等分表补全信息</li><li>黄色列改过的内容会被人工保护</li><li>最后把确定内容写进「行程首页」</li></ol></article>
+          <article className="recommended-choice"><span>推荐流程</span><h2>先收集想法，再补全，最后定行程</h2><p>链接和文字都会进入分类表；黄色单元格是你可以人工确认和修正的内容。</p><ol><li>在「候选决策台」按大类和子分类筛选</li><li>查看团队原始诉求，再补充真实商户信息</li><li>黄色列改过的内容会被人工保护</li><li>最后把确定内容写进「行程首页」</li></ol></article>
           <article><span>备用</span><h2>在网页中快速修改</h2><p>适合临时改一个时间、负责人或民宿信息，保存后同样会写回 Excel。</p><button className="small-button" onClick={startPlanEditing}>打开网页编辑器</button></article>
         </div>
 
         <div className="simple-section-title manage-sheet-title"><div><p className="eyebrow">四组工作表</p><h2>全局决策、分类细节、最终行程和处理记录</h2></div></div>
-        <div className="sheet-grid simple-sheet-grid">{[["候选决策台","统一比较大类、子分类、价格、位置和缺失项"],["六张分类明细","住宿、美食、密室、室内休闲、景点与攻略"],["行程首页","最终网页的唯一内容来源"],["链接汇总 / 处理报告","查看哪些链接成功、受限或需要补充"]].map(([name, desc], index) => <div className={`sheet-card ${index === 0 ? "primary-sheet" : ""}`} key={name}><b>{String(index + 1).padStart(2, "0")}</b><div><strong>{name}</strong><p>{desc}</p></div></div>)}</div>
+        <div className="sheet-grid simple-sheet-grid">{[["候选决策台","统一比较大类、子分类、价格、位置和团队诉求"],["六张分类明细","住宿、美食、密室、室内休闲、景点与攻略"],["行程首页","最终网页的唯一内容来源"],["投递汇总 / 处理报告","查看链接和文字是否成功整理、还缺什么"]].map(([name, desc], index) => <div className={`sheet-card ${index === 0 ? "primary-sheet" : ""}`} key={name}><b>{String(index + 1).padStart(2, "0")}</b><div><strong>{name}</strong><p>{desc}</p></div></div>)}</div>
 
         <details className="advanced-settings"><summary>查看运行状态</summary><div className="settings-card"><div className="setting-row"><div><span>当前分析方式</span><strong>{state.settings.provider}</strong></div><span className="setting-state good">已配置</span></div><div className="setting-row"><div><span>本地后台</span><strong>{connected ? "正在运行" : "未连接"}</strong></div><span className={`setting-state ${connected ? "good" : ""}`}>{connected ? "可用" : "请启动服务"}</span></div><div className="setting-row"><div><span>Excel 自动同步</span><strong>每 4 秒检查一次</strong></div><span className="setting-state good">已开启</span></div></div></details>
         <div className="scope-note safety"><strong>不会自动下单</strong><p>网站只负责整理和展示。住宿、餐厅、密室与门票都需要大家确认真实价格和取消政策后再预订。</p></div>

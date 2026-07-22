@@ -22,12 +22,12 @@ test("server renders the Yangzhou trip workspace", async () => {
   const html = await response.text();
   assert.match(html, /<title>下扬州 · 团队旅行共创台<\/title>/);
   assert.match(html, /团队最终行程/);
-  assert.match(html, /投递一个好链接/);
+  assert.match(html, /投递链接或想法/);
   assert.match(html, /住宿与待确认事项/);
   assert.match(html, /最终内容只来自 Excel 第一张/);
   assert.match(html, /已确定/);
   assert.match(html, /待补充/);
-  assert.match(html, /投递链接/);
+  assert.match(html, /投递想法/);
   assert.match(html, /重点候选/);
   assert.match(html, /Excel 管理/);
   assert.doesNotMatch(html, /Your site is taking shape|react-loading-skeleton/);
@@ -51,6 +51,8 @@ test("local data and the generated workbook are present", async () => {
   assert.ok(state.places.every((place) => ["住宿", "餐饮", "密室", "休闲娱乐", "景点", "攻略"].includes(place.category)));
   assert.ok(state.places.every((place) => typeof place.subCategory === "string" && place.subCategory.length > 0));
   assert.ok(state.places.every((place) => Array.isArray(place.featureTags)));
+  assert.ok(state.links.every((item) => ["链接", "文字"].includes(item.sourceType)));
+  assert.ok(state.links.every((item) => typeof item.inputText === "string"));
   const subCategories = {
     住宿: ["民宿", "酒店", "公寓", "客栈", "度假村", "其他住宿"],
     餐饮: ["烧烤", "火锅", "早茶早餐", "炒菜正餐", "自助餐", "夜宵", "甜品饮品", "咖啡", "酒吧", "其他餐饮"],
