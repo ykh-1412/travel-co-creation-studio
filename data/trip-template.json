@@ -1,0 +1,164 @@
+{
+  "project": {
+    "name": "我的出行共创项目",
+    "destination": "待确定目的地",
+    "days": 2,
+    "people": 6,
+    "budget": 0,
+    "status": "方案共创中",
+    "tagline": "把分散的链接和想法，整理成大家都看得懂的出行方案。"
+  },
+  "links": [],
+  "places": [],
+  "itinerary": {
+    "day0": [
+      {
+        "time": "20:00",
+        "endTime": "21:00",
+        "category": "抵达",
+        "title": "抵达目的地 · 集合",
+        "subtitle": "团队会合后前往住宿，晚到成员可直接在住宿地点集合。",
+        "address": "住宿地址待定",
+        "transport": "车站 / 机场 / 自驾点 → 住宿",
+        "cost": 0,
+        "bookingStatus": "待确认",
+        "note": "按最终交通时间调整",
+        "sourceId": ""
+      }
+    ],
+    "day1": [
+      {
+        "time": "09:00",
+        "endTime": "12:00",
+        "category": "游玩",
+        "title": "第一天上午安排待选",
+        "subtitle": "从团队投递的候选中选择。",
+        "address": "待补充",
+        "transport": "待补充",
+        "cost": 0,
+        "bookingStatus": "待确认",
+        "note": "先收集链接和文字想法",
+        "sourceId": ""
+      },
+      {
+        "time": "14:00",
+        "endTime": "18:00",
+        "category": "游玩",
+        "title": "第一天下午安排待选",
+        "subtitle": "根据位置、预算和团队偏好确定。",
+        "address": "待补充",
+        "transport": "待补充",
+        "cost": 0,
+        "bookingStatus": "待确认",
+        "note": "等待团队共创",
+        "sourceId": ""
+      }
+    ],
+    "day2": [
+      {
+        "time": "09:00",
+        "endTime": "12:00",
+        "category": "活动",
+        "title": "第二天团队活动待选",
+        "subtitle": "可选择密室、休闲、景点或其他活动。",
+        "address": "待补充",
+        "transport": "待补充",
+        "cost": 0,
+        "bookingStatus": "待确认",
+        "note": "按返程时间调整",
+        "sourceId": ""
+      },
+      {
+        "time": "17:00",
+        "endTime": "19:00",
+        "category": "返程",
+        "title": "弹性返程",
+        "subtitle": "按团队成员的交通时间分批返程。",
+        "address": "车站 / 机场待定",
+        "transport": "待补充",
+        "cost": 0,
+        "bookingStatus": "待确认",
+        "note": "预留行李和交通时间",
+        "sourceId": ""
+      }
+    ]
+  },
+  "settings": {
+    "provider": "演示分析",
+    "workbookPath": "",
+    "lastExcelSync": ""
+  },
+  "tripProfile": {
+    "planVersion": "weekend-v2",
+    "dates": "待团队确认",
+    "schedule": "周五晚抵达 · 周日傍晚返程",
+    "groupSize": 6,
+    "nights": 2,
+    "stayPreference": "环境舒适、位置合适、满足团队人数",
+    "barbecue": "待团队确认",
+    "breakfasts": [
+      "第一天早餐待选",
+      "第二天早餐待选"
+    ],
+    "activity": "团队活动待确认",
+    "accommodationBudget": "待团队确认"
+  },
+  "reservations": [
+    {
+      "id": "reserve-stay",
+      "item": "团队住宿",
+      "type": "住宿",
+      "targetTime": "抵达日入住，返程日退房",
+      "status": "待补充真实链接",
+      "owner": "待认领",
+      "deadline": "日期确认后立即",
+      "note": "核对人数、房型、总价与取消政策"
+    },
+    {
+      "id": "reserve-activity",
+      "item": "团队活动",
+      "type": "活动",
+      "targetTime": "待确认",
+      "status": "待补充真实链接",
+      "owner": "待认领",
+      "deadline": "出发前 7 天",
+      "note": "核对人数、价格、时长与取消政策"
+    },
+    {
+      "id": "reserve-transport",
+      "item": "往返交通",
+      "type": "交通",
+      "targetTime": "抵达日与返程日",
+      "status": "待确认",
+      "owner": "待认领",
+      "deadline": "日期确认后",
+      "note": "汇总每个人的车次、航班或自驾安排"
+    }
+  ],
+  "finalPlan": {
+    "version": "excel-home-v1",
+    "title": "我的出行共创项目",
+    "destination": "待确定目的地",
+    "dates": "待团队确认",
+    "schedule": "周五晚抵达 · 周日傍晚返程",
+    "people": 6,
+    "nights": 2,
+    "perPersonBudget": "待团队确认",
+    "summary": "先收集团队的链接和文字想法，再一起确认住宿、餐饮、活动和最终行程。",
+    "stay": {
+      "name": "待选择真实住宿",
+      "address": "待补充住宿详细地址",
+      "capacity": "团队人数待确认",
+      "roomsBeds": "房间与床位待确认",
+      "twoNightTotal": "住宿总价待确认",
+      "checkInOut": "入住与退房时间待确认",
+      "barbecue": "待确认",
+      "bbqEquipment": "待确认",
+      "breakfast": "早餐安排待确认",
+      "sourceUrl": ""
+    },
+    "itinerary": [],
+    "reservations": [],
+    "updatedAt": ""
+  }
+}

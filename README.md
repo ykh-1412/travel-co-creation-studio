@@ -1,28 +1,52 @@
-# 下扬州 · 团队旅行共创台
+# 出行共创台
 
-一个可部署在个人电脑或服务器上的团队旅行资料整理网站。朋友可以提交攻略、住宿、餐饮、密室、室内休闲或景点链接，也可以在没有链接时直接写下旅行诉求。后台调用 DeepSeek（也可切换豆包、Ollama 或演示模式），先识别大类、子分类和特征标签，再把专属字段写入 Excel，最后由网站展示候选和周末行程。
+一个可以复用到不同目的地的团队旅行资料整理模板。朋友可以提交攻略、住宿、餐饮、密室、室内休闲或景点链接，也可以在没有链接时直接写旅行诉求。后台调用 DeepSeek（也可切换豆包、Ollama 或演示模式），把内容整理成可比较的分类字段并写入 Excel，网站再读取 Excel 首页生成最终行程。
+
+当前仓库保留了一份扬州周末旅行作为完整示例；应用品牌、AI 行程背景、地图城市、Excel 名称和新项目数据已经与“扬州”解耦。
 
 ## 已实现
 
 - 无账号，仅用团队共享密码访问
 - 一次提交多个旅行链接，或直接写一段旅行想法
-- 文字诉求会保留原文，并明确标记为“团队偏好”，不会冒充真实商户资料
-- 明确记录“成功读取 / 读取受限 / 已整理 / 未整理”
-- 保存已提取信息、缺失信息和失败原因
-- 6 人、周五晚至周日、住宿两晚的扬州行程框架
-- 住宿地址、房间床位、两晚总价、烧烤条件和预订状态
-- 两顿早餐、6 人密室以及汗蒸、桑拿、洗浴等室内休闲候选
-- 餐饮细分烧烤、火锅、早茶早餐、炒菜正餐等；密室细分恐怖程度、难度、规模与六人价格
-- Excel 与网站双向同步，人工修改过的关键字段会在重新分析时保留
+- 保留原文、AI 摘要、已提取信息、缺失信息和失败原因
+- 住宿、餐饮、密室、室内休闲、景点与攻略分类整理
+- Excel 与网站双向同步，人工修改过的关键字段不会被重新分析覆盖
 - `行程首页`、`候选决策台`、`投递汇总`、六张分类明细、`处理报告`、`预订清单`、`两日行程` 等 14 张工作表
+- 一个仓库可切换多个独立旅行项目，不覆盖原来的数据
 
-当前攻略数据保存在 `data/store.json`，当前 Excel 在：
+## 把它用作新旅行模板
 
-```text
-outputs/019f7eda-a998-7660-a73d-e43b3af67965/扬州团队旅行攻略.xlsx
+GitHub 仓库启用 Template repository 后，可以点击 **Use this template** 创建自己的新仓库。
+
+首次安装：
+
+```bash
+git clone https://github.com/ykh-1412/travel-co-creation-studio.git
+cd travel-co-creation-studio
+cp .env.example .env
+npm ci
 ```
 
-真实 API 密钥不会提交到 GitHub。
+创建一个新的旅行项目：
+
+```bash
+npm run trip:new -- --destination=苏州 --slug=suzhou --people=6 --days=2 --nights=2
+```
+
+这条命令会：
+
+1. 新建 `data/trips/suzhou.json`
+2. 新建独立的 `outputs/suzhou/` Excel 目录
+3. 更新本机 `.env`，让网站切换到苏州项目
+4. 保留原来的扬州项目，不删除、不覆盖
+
+重新启动网站后，新项目生效。以后切回旧项目，只需把 `.env` 中的 `TRIP_DATA_FILE`、`TRIP_OUTPUT_DIR` 和 `WORKBOOK_FILE_NAME` 改回对应值。
+
+当前扬州示例数据位于 `data/store.json`，当前 Excel 默认生成在：
+
+```text
+outputs/019f7eda-a998-7660-a73d-e43b3af67965/出行共创项目.xlsx
+```
 
 ## 本地运行
 
@@ -43,13 +67,11 @@ npm start
 npm run local
 ```
 
-## 用 Docker 部署到服务器（推荐）
-
-服务器安装 Git 和 Docker 后：
+## 用 Docker 部署到服务器
 
 ```bash
-git clone https://github.com/ykh-1412/yangzhou-trip-studio.git
-cd yangzhou-trip-studio
+git clone https://github.com/ykh-1412/travel-co-creation-studio.git
+cd travel-co-creation-studio
 cp .env.example .env
 ```
 
@@ -68,31 +90,21 @@ PUBLIC_REQUIRE_PASSWORD=true
 docker compose up -d --build
 ```
 
-网站入口为 `http://服务器IP:8787`。正式给朋友使用时，请在 8787 前配置 Nginx、Caddy 或 Cloudflare 的 HTTPS 域名；密码 Cookie 使用 `Secure`，公网部署应使用 HTTPS。
+网站入口为 `http://服务器IP:8787`。正式给朋友使用时，请在 8787 前配置 HTTPS 域名。
 
-`data/` 和 `outputs/` 已映射到服务器目录，容器重建后链接资料和 Excel 仍会保留。
+## 项目切换配置
 
-## 以后更新服务器代码
-
-```bash
-git pull
-docker compose up -d --build
+```dotenv
+TRIP_DATA_FILE=data/store.json
+TRIP_OUTPUT_DIR=outputs/current
+WORKBOOK_FILE_NAME=出行共创项目.xlsx
 ```
 
-如果服务器上的 `data/store.json` 或 Excel 已产生新内容，建议更新前先下载 Excel，或对 `data/`、`outputs/` 做一次备份。
+- `TRIP_DATA_FILE`：当前旅行的 JSON 数据
+- `TRIP_OUTPUT_DIR`：当前旅行的 Excel 目录
+- `WORKBOOK_FILE_NAME`：团队下载和编辑的 Excel 文件名
 
-## 不使用 Docker
-
-```bash
-git clone https://github.com/ykh-1412/yangzhou-trip-studio.git
-cd yangzhou-trip-studio
-cp .env.example .env
-npm ci
-npm run build
-npm start
-```
-
-可再用 `systemd`、PM2 或其他进程管理工具保持 `npm start` 常驻，并用反向代理提供 HTTPS。
+每个旅行使用独立数据文件和 Excel 目录，因此本机运行与服务器部署也可以各自选择不同项目。
 
 ## 模型配置
 
@@ -105,7 +117,7 @@ npm start
 
 ## 安全说明
 
-- `.env`、日志、依赖、构建产物和本机 `cloudflared` 二进制已排除在 Git 之外。
-- 仓库只包含 `.env.example`，不会包含真实 DeepSeek Key。
-- 服务器请自行设置新密码和新 API Key，不要把 `.env` 提交到 GitHub。
-- GitHub 仓库默认建议使用 Private；确认不含私人数据后再考虑公开。
+- `.env`、日志、依赖、构建产物和本机隧道程序已排除在 Git 之外
+- 仓库只包含 `.env.example`，不会包含真实 DeepSeek Key
+- 切换旅行不会删除旧项目；覆盖同名项目必须显式追加 `--force`
+- GitHub 仓库建议保持 Private；确认不含私人数据后再考虑公开

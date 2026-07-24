@@ -6,16 +6,6 @@ import { fileURLToPath } from "node:url";
 import ExcelJS from "exceljs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const dataFile = path.join(rootDir, "data", "store.json");
-const outputDir = path.join(rootDir, "outputs", "019f7eda-a998-7660-a73d-e43b3af67965");
-const workbookPath = path.join(outputDir, "扬州团队旅行攻略.xlsx");
-const port = Number(process.env.API_PORT || 8787);
-const host = "0.0.0.0";
-let writeInProgress = false;
-let lastKnownWorkbookMtime = 0;
-let processingChain = Promise.resolve();
-
-await fs.mkdir(outputDir, { recursive: true });
 
 try {
   const envText = await fs.readFile(path.join(rootDir, ".env"), "utf8");
@@ -27,6 +17,34 @@ try {
   }
 } catch {
   // .env is optional; demo mode works without it.
+}
+
+function projectPath(value, fallback) {
+  const resolved = path.resolve(rootDir, value || fallback);
+  if (resolved !== rootDir && !resolved.startsWith(`${rootDir}${path.sep}`)) {
+    throw new Error("旅行项目文件必须位于当前仓库内");
+  }
+  return resolved;
+}
+
+const dataFile = projectPath(process.env.TRIP_DATA_FILE, "data/store.json");
+const outputDir = projectPath(process.env.TRIP_OUTPUT_DIR, "outputs/019f7eda-a998-7660-a73d-e43b3af67965");
+const requestedWorkbookName = path.basename(process.env.WORKBOOK_FILE_NAME || "出行共创项目.xlsx");
+const workbookFileName = requestedWorkbookName.toLowerCase().endsWith(".xlsx") ? requestedWorkbookName : `${requestedWorkbookName}.xlsx`;
+const workbookPath = path.join(outputDir, workbookFileName);
+const templateDataFile = path.join(rootDir, "data", "trip-template.json");
+const port = Number(process.env.API_PORT || 8787);
+const host = "0.0.0.0";
+let writeInProgress = false;
+let lastKnownWorkbookMtime = 0;
+let processingChain = Promise.resolve();
+
+await fs.mkdir(path.dirname(dataFile), { recursive: true });
+await fs.mkdir(outputDir, { recursive: true });
+try {
+  await fs.access(dataFile);
+} catch {
+  await fs.copyFile(templateDataFile, dataFile);
 }
 
 const defaultDetails = {
@@ -134,13 +152,14 @@ function inferSubCategory(text, category) {
 
 function inferFeatureTags(text, category) {
   const source = String(text || "");
+  const groupSize = source.match(/(?:适合|容纳|支持|我们|团队)?\s*(\d{1,2})\s*人/i)?.[1];
   const rules = [
     [/烧烤|烤串|烤肉/i, "烧烤"], [/火锅|涮肉/i, "火锅"], [/早茶|早餐/i, "早茶早餐"], [/包间/i, "有包间"],
     [/微恐/i, "微恐"], [/中恐/i, "中恐"], [/重恐/i, "重恐"], [/无恐/i, "无恐"], [/NPC|真人互动/i, "真人互动"],
     [/汗蒸/i, "汗蒸"], [/桑拿/i, "桑拿"], [/洗浴/i, "洗浴"], [/温泉/i, "温泉"], [/过夜|24小时/i, "可过夜"],
-    [/室内/i, "室内"], [/室外|户外/i, "室外"], [/预约/i, "需要预约"], [/停车/i, "可停车"], [/六人|6人/i, "适合6人"],
+    [/室内/i, "室内"], [/室外|户外/i, "室外"], [/预约/i, "需要预约"], [/停车/i, "可停车"],
   ];
-  return [...new Set([category, ...rules.filter(([pattern]) => pattern.test(source)).map(([, label]) => label)])].slice(0, 12);
+  return [...new Set([category, ...rules.filter(([pattern]) => pattern.test(source)).map(([, label]) => label), ...(groupSize ? [`适合${groupSize}人`] : [])])].slice(0, 12);
 }
 
 const defaultTripProfile = {
@@ -261,8 +280,8 @@ function sanitizeFinalPlan(input, current) {
   return {
     ...previous,
     version: "excel-home-v1",
-    title: submittedText(source, "title", previous.title || "6 人扬州周末旅行", 120, false),
-    destination: submittedText(source, "destination", previous.destination || "扬州", 80, false),
+    title: submittedText(source, "title", previous.title || "我的出行共创项目", 120, false),
+    destination: submittedText(source, "destination", previous.destination || "待确定目的地", 80, false),
     dates: submittedText(source, "dates", previous.dates || "待团队确认", 120),
     schedule: submittedText(source, "schedule", previous.schedule || "周五晚抵达 · 周日傍晚返程", 160),
     people: boundedInteger(source.people, boundedInteger(previous.people, 6, 1, 50), 1, 50),
@@ -272,7 +291,7 @@ function sanitizeFinalPlan(input, current) {
     stay: {
       name: submittedText(stay, "name", previousStay.name || "待选择真实民宿", 160),
       address: submittedText(stay, "address", previousStay.address || "待补充民宿详细地址", 300),
-      capacity: submittedText(stay, "capacity", previousStay.capacity || "目标 6 人", 160),
+      capacity: submittedText(stay, "capacity", previousStay.capacity || `目标 ${boundedInteger(source.people, boundedInteger(previous.people, 6, 1, 50), 1, 50)} 人`, 160),
       roomsBeds: submittedText(stay, "roomsBeds", previousStay.roomsBeds || "待确认", 240),
       twoNightTotal: submittedText(stay, "twoNightTotal", previousStay.twoNightTotal || "待确认", 120),
       checkInOut: submittedText(stay, "checkInOut", previousStay.checkInOut || "待确认", 200),
@@ -319,11 +338,11 @@ function sanitizeFinalPlan(input, current) {
 function normalizeState(raw) {
   const state = raw && typeof raw === "object" ? raw : {};
   const hasWeekendPlan = state.tripProfile?.planVersion === defaultTripProfile.planVersion;
-  state.project = { name: "扬州周末共创攻略", destination: "扬州", days: 2, people: 6, budget: 6000, status: "方案共创中", tagline: "周五晚集合，周末一起住、一起吃、一起玩。", ...(state.project || {}) };
+  state.project = { name: "我的出行共创项目", destination: "待确定目的地", days: 2, people: 6, budget: 6000, status: "方案共创中", tagline: "把分散的链接和想法，整理成大家都看得懂的出行方案。", ...(state.project || {}) };
   if (state.project.name === "扬州两日慢游") state.project.name = "扬州周末共创攻略";
   if (state.project.tagline === "一半烟火，一半园林。把散落的灵感，整理成一起出发的路线。") state.project.tagline = "周五晚集合，周末一起住、一起吃、一起玩。";
-  state.project.people = 6;
-  state.project.days = 2;
+  state.project.people = boundedInteger(state.project.people, 6, 1, 50);
+  state.project.days = boundedInteger(state.project.days, 2, 1, 30);
   state.tripProfile = { ...defaultTripProfile, ...(state.tripProfile || {}) };
   state.tripProfile.breakfasts = Array.isArray(state.tripProfile.breakfasts) ? state.tripProfile.breakfasts : defaultTripProfile.breakfasts;
   state.links = Array.isArray(state.links) ? state.links.map((item) => {
@@ -392,7 +411,7 @@ function normalizeState(raw) {
   const defaultStay = state.places.find((item) => item.id === "place-005") || state.places.find((item) => item.category === "住宿") || {};
   const defaultFinalPlan = {
     version: "excel-home-v1",
-    title: "6 人扬州周末旅行",
+    title: `${state.project.people} 人${state.project.destination}出行共创`,
     destination: state.project.destination,
     dates: state.tripProfile.dates,
     schedule: state.tripProfile.schedule,
@@ -403,7 +422,7 @@ function normalizeState(raw) {
     stay: {
       name: "待选择真实民宿",
       address: "待补充民宿详细地址",
-      capacity: "目标 6 人，待房源确认",
+      capacity: `目标 ${state.project.people} 人，待房源确认`,
       roomsBeds: "至少 3 个独立睡眠空间，床型待确认",
       twoNightTotal: "待确认日期和房源后计算",
       checkInOut: "周五晚上入住 · 周日退房",
@@ -481,7 +500,7 @@ function isPublicTunnelRequest(request) {
 
 function publicAccessToken() {
   const password = process.env.PUBLIC_ACCESS_PASSWORD || "";
-  return password ? createHash("sha256").update(`yangzhou-trip:${password}`).digest("hex") : "";
+  return password ? createHash("sha256").update(`travel-co-creation:${password}`).digest("hex") : "";
 }
 
 function hasPublicAccess(request) {
@@ -495,10 +514,10 @@ function sendPasswordPage(response, invalid = false) {
   const error = invalid ? '<p class="error" role="alert">密码不正确，请重新输入。</p>' : "";
   const html = `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>进入下扬州 · 团队旅行共创台</title>
+<title>进入出行共创台</title>
 <style>
 *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:#f6f1e7;color:#173d3b;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif}body:before{content:"";position:fixed;inset:0;background:radial-gradient(circle at 15% 15%,rgba(15,105,99,.16),transparent 34%),radial-gradient(circle at 85% 85%,rgba(217,112,62,.15),transparent 32%);pointer-events:none}.card{position:relative;width:min(440px,100%);padding:38px;border:1px solid rgba(23,61,59,.16);border-radius:28px;background:rgba(255,252,246,.94);box-shadow:0 24px 70px rgba(23,61,59,.14)}.mark{display:grid;place-items:center;width:52px;height:52px;border-radius:16px;background:#0f6963;color:white;font:700 24px serif}.eyebrow{margin:28px 0 8px;color:#d9703e;font-size:12px;font-weight:800;letter-spacing:.18em}.card h1{margin:0;font:700 clamp(28px,7vw,38px)/1.15 Georgia,"Songti SC",serif}.intro{margin:14px 0 28px;color:#5e7471;line-height:1.7}label{display:block;margin-bottom:9px;font-size:13px;font-weight:800}input{width:100%;height:52px;padding:0 16px;border:1px solid #cfdad5;border-radius:14px;background:white;color:#173d3b;font-size:17px;outline:none}input:focus{border-color:#0f6963;box-shadow:0 0 0 4px rgba(15,105,99,.1)}button{width:100%;height:52px;margin-top:14px;border:0;border-radius:14px;background:#0f6963;color:white;font-size:16px;font-weight:800;cursor:pointer}button:hover{background:#0b5752}.error{margin:0 0 12px;padding:10px 12px;border-radius:12px;background:#f5dfcd;color:#8a3f20;font-size:13px}.note{margin:18px 0 0;color:#81908d;font-size:12px;text-align:center}
-</style></head><body><main class="card"><div class="mark">扬</div><p class="eyebrow">TEAM TRIP · YANGZHOU</p><h1>朋友，输入密码<br>一起下扬州。</h1><p class="intro">这是团队内部的旅行共创空间。只需要输入共享密码，不需要注册账号。</p>${error}<form method="post" action="/__team-login"><label for="password">团队访问密码</label><input id="password" name="password" type="password" autocomplete="current-password" required autofocus placeholder="请输入密码"><button type="submit">进入共创台</button></form><p class="note">密码由旅行发起人提供</p></main></body></html>`;
+</style></head><body><main class="card"><div class="mark">行</div><p class="eyebrow">TEAM TRIP · CO-CREATE</p><h1>朋友，输入密码<br>一起把行程定下来。</h1><p class="intro">这是团队内部的出行共创空间。只需要输入共享密码，不需要注册账号。</p>${error}<form method="post" action="/__team-login"><label for="password">团队访问密码</label><input id="password" name="password" type="password" autocomplete="current-password" required autofocus placeholder="请输入密码"><button type="submit">进入共创台</button></form><p class="note">密码由出行发起人提供</p></main></body></html>`;
   response.writeHead(invalid ? 401 : 200, {
     "Content-Type": "text/html; charset=utf-8",
     "Cache-Control": "no-store",
@@ -602,7 +621,7 @@ function parseJsonFromModel(text) {
 }
 
 const categoryFieldInstructions = {
-  住宿: "details 提取 address, locationHighlights, capacity, roomType, rooms, beds, bedTypes, bathrooms, twoNightTotal, extraFees, deposit, environment, entireRental, kitchen, barbecue, bbqEquipment, breakfast, parking, checkIn, checkOut, bookingStatus, reservation, cancellationPolicy, evidence。重点判断是否适合 6 人、两晚总价和是否允许烧烤。",
+  住宿: "details 提取 address, locationHighlights, capacity, roomType, rooms, beds, bedTypes, bathrooms, twoNightTotal, extraFees, deposit, environment, entireRental, kitchen, barbecue, bbqEquipment, breakfast, parking, checkIn, checkOut, bookingStatus, reservation, cancellationPolicy, evidence。重点判断是否适合当前团队人数、住宿总价和关键住宿偏好。",
   餐饮: "details 提取 address, cuisineType, signatureDishes, sixPersonTotal, privateRoom, queueInfo, groupSuitability, environment, parking, openingHours, reservation, cancellationPolicy, bookingStatus, usage, evidence。subCategory 优先使用烧烤、火锅、早茶早餐、炒菜正餐、自助餐、夜宵、甜品饮品、咖啡、酒吧；price 表示人均价格。",
   密室: "details 提取 address, themeName, escapeStyle, venueSize, roomCount, capacity, minPlayers, maxPlayers, sixPersonSession, horrorLevel, difficulty, npcInteraction, physicalIntensity, costume, openingHours, reservation, cancellationPolicy, parking, bookingStatus, sixPersonTotal, evidence。恐怖程度规范为无恐、微恐、中恐、重恐之一；没有原文依据则待核实。",
   休闲娱乐: "details 提取 address, leisureFacilities, packageInfo, sixPersonTotal, capacity, openingHours, overnight, includedMeals, restArea, privateRoom, genderArrangement, serviceRestrictions, environment, parking, reservation, cancellationPolicy, bookingStatus, evidence。subCategory 优先使用汗蒸、桑拿、洗浴中心、温泉、SPA、足疗按摩、KTV、桌游、电竞、电玩城、沉浸式剧场。",
@@ -610,20 +629,25 @@ const categoryFieldInstructions = {
   攻略: "提取文章中明确提到的地点、餐饮、住宿或活动线索；subCategory 使用美食攻略、住宿攻略、行程攻略或综合攻略；details 至少提取 address, evidence。",
 };
 
-function systemPromptFor(category, sourceType = "链接") {
+function systemPromptFor(category, sourceType = "链接", trip = {}) {
+  const destination = String(trip.project?.destination || trip.finalPlan?.destination || "待确定目的地");
+  const people = boundedInteger(trip.tripProfile?.groupSize || trip.project?.people || trip.finalPlan?.people, 6, 1, 50);
+  const schedule = String(trip.tripProfile?.schedule || trip.finalPlan?.schedule || "日期与行程待确认");
+  const stayPreference = String(trip.tripProfile?.stayPreference || "住宿条件待团队确认");
+  const activity = String(trip.tripProfile?.activity || "团队活动待确认");
   const sourceRule = sourceType === "文字"
     ? "本次输入是团队成员直接写下的个人诉求，不是商家页面。把明确表达的预算、位置、人数、类型、环境和偏好提取为需求条件；不得把愿望写成已经核实的商家事实。name 写成简短的需求名称，dataStatus 写明‘团队文字需求，具体商户待匹配’，factsFound 记录已表达的偏好，missingFields 记录仍需用真实链接或商户信息核实的内容。"
     : "本次输入是网页链接。只根据网页正文提取事实，无法读取或正文未写明的内容必须标为待核实。";
-  return `你是扬州 6 人周末旅行的资料整理助手。团队周五晚抵达、周日返程，住两晚，周六晚希望在民宿烧烤，并需要两顿早餐和一次密室或休闲活动。你的任务是把团队投递整理成可在 Excel 横向比较的数据。${sourceRule}输出严格 JSON，不得猜测或编造。
+  return `你是“出行共创台”的旅行资料整理助手。本次目的地是“${destination}”，同行 ${people} 人，行程结构是“${schedule}”，住宿偏好是“${stayPreference}”，团队活动偏好是“${activity}”。你的任务是把团队投递整理成可在 Excel 横向比较的数据。${sourceRule}输出严格 JSON，不得猜测或编造。
 顶层字段必须包含：name, category, subCategory, featureTags(string数组), area, price(number或null), priceLabel, duration, summary, tags(string数组), pros(string数组), cons(string数组), score(0到5), dataStatus, factsFound(string数组), missingFields(string数组), details(object)。
 category 只能是住宿、餐饮、密室、休闲娱乐、景点、攻略。当前预分类是“${category}”，只有正文明确证明分类错误时才调整。featureTags 可多选，例如烧烤、火锅、微恐、中恐、汗蒸、桑拿、洗浴、可过夜、适合6人。
-所有类别都要提取具体地点、价格、营业或入住时间、预约/取消规则、适合人数、优缺点和证据。${categoryFieldInstructions[category] || categoryFieldInstructions.攻略}
+所有类别都要提取具体地点、价格、营业或入住时间、预约/取消规则、适合人数、优缺点和证据。details.sixPersonTotal 与 details.sixPersonSession 是兼容旧数据的内部字段，分别表示当前 ${people} 人团队总价与当前团队能否独立成团。${categoryFieldInstructions[category] || categoryFieldInstructions.攻略}
 evidence 用简短文字概括输入中明确表达的事实或偏好，不编造引文。输入没有明确写出的字段写“待核实”，并放入 missingFields。无关字段可以省略，系统会自动补齐。`;
 }
 
-async function modelAnalysis(content, fallback, category, sourceType = "链接") {
+async function modelAnalysis(content, fallback, category, sourceType = "链接", trip = {}) {
   const provider = (process.env.AI_PROVIDER || "demo").toLowerCase();
-  const systemPrompt = systemPromptFor(category, sourceType);
+  const systemPrompt = systemPromptFor(category, sourceType, trip);
   if (provider === "deepseek") {
     if (!process.env.DEEPSEEK_API_KEY) throw new Error("DeepSeek 模式缺少 DEEPSEEK_API_KEY");
     const base = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
@@ -673,7 +697,7 @@ async function modelAnalysis(content, fallback, category, sourceType = "链接")
   return fallback;
 }
 
-function demoAnalysis(title, text, category, url) {
+function demoAnalysis(title, text, category, url, destination = "") {
   const priceMatch = text.match(/(?:¥|￥|人均|价格)[^\d]{0,6}(\d{2,5})/i);
   const price = priceMatch ? Number(priceMatch[1]) : null;
   const hostname = new URL(url).hostname.replace(/^www\./, "");
@@ -682,7 +706,7 @@ function demoAnalysis(title, text, category, url) {
     category,
     subCategory: inferSubCategory(`${title} ${text}`, category),
     featureTags: inferFeatureTags(`${title} ${text}`, category),
-    area: text.includes("扬州") ? "扬州（具体区域待核实）" : "地点待核实",
+    area: destination && text.includes(destination) ? `${destination}（具体区域待核实）` : "地点待核实",
     price,
     priceLabel: price ? `参考 ¥${price}` : "价格待核实",
     duration: "时长待核实",
@@ -703,24 +727,25 @@ function textSubmissionTitle(text) {
   return `团队需求｜${compact.slice(0, 42)}${compact.length > 42 ? "…" : ""}`;
 }
 
-function demoTextAnalysis(text, category) {
+function demoTextAnalysis(text, category, destination = "") {
   const compact = String(text || "").replace(/\s+/g, " ").trim();
+  const groupSize = compact.match(/(?:适合|容纳|支持|我们|团队)?\s*(\d{1,2})\s*人/i)?.[1];
   const priceMatch = compact.match(/(?:人均|预算|不超过|最多|上限|价格)[^\d]{0,8}(\d{2,5})/i);
   const price = priceMatch ? Number(priceMatch[1]) : null;
   const details = { ...defaultDetails, evidence: `团队原始诉求：${compact.slice(0, 300)}` };
   if (category === "住宿") {
-    if (/6\s*人|六人/.test(compact)) details.capacity = "团队明确要求适合 6 人";
+    if (groupSize) details.capacity = `团队明确要求适合 ${groupSize} 人`;
     if (/烧烤/.test(compact)) details.barbecue = "团队希望可以烧烤，需用真实房源核实";
     if (/整租/.test(compact)) details.entireRental = "团队偏好整租";
   } else if (category === "餐饮") {
-    if (/6\s*人|六人/.test(compact)) details.groupSuitability = "团队明确要求适合 6 人";
+    if (groupSize) details.groupSuitability = `团队明确要求适合 ${groupSize} 人`;
     details.usage = /早餐|早茶/.test(compact) ? "早餐 / 早茶" : "团队餐饮候选";
   } else if (category === "密室") {
     if (/微恐/.test(compact)) details.horrorLevel = "微恐";
     else if (/中恐/.test(compact)) details.horrorLevel = "中恐";
     else if (/重恐/.test(compact)) details.horrorLevel = "重恐";
     else if (/无恐/.test(compact)) details.horrorLevel = "无恐";
-    if (/6\s*人|六人/.test(compact)) details.capacity = "6 人";
+    if (groupSize) details.capacity = `${groupSize} 人`;
   } else if (category === "休闲娱乐") {
     details.leisureFacilities = inferSubCategory(compact, category);
   }
@@ -729,7 +754,7 @@ function demoTextAnalysis(text, category) {
     category,
     subCategory: inferSubCategory(compact, category),
     featureTags: inferFeatureTags(compact, category),
-    area: /扬州/.test(compact) ? "扬州（具体区域待匹配）" : "地点待匹配",
+    area: destination && compact.includes(destination) ? `${destination}（具体区域待匹配）` : "地点待匹配",
     price,
     priceLabel: price ? `预算参考 ¥${price}` : "预算待补充",
     duration: "时长待匹配",
@@ -750,15 +775,15 @@ function stringList(value, fallback = []) {
   return normalized.length ? normalized : fallback;
 }
 
-function filterTextMissingFields(items, originalText) {
+function filterTextMissingFields(items, originalText, destination = "") {
   const text = String(originalText || "");
   return items.filter((item) => {
     if (/恐怖程度/.test(item) && /(无恐|微恐|中恐|重恐)/.test(text)) return false;
     if (/难度/.test(item) && /(?:难度.{0,4})?(简单|中等|困难|高难)/.test(text)) return false;
     if (/NPC|真人互动/.test(item) && /NPC|真人互动/i.test(text)) return false;
-    if (/适合.*6\s*人|6\s*人.*(?:同时|游戏|开场)/.test(item) && /6\s*人|六人/.test(text)) return false;
+    if (/适合.*人|人数|同时|开场/.test(item) && /\d{1,2}\s*人|[二三四五六七八九十]人/.test(text)) return false;
     if (/价格|预算/.test(item) && /(?:预算|人均|单人|不超过|以内).{0,10}\d+/.test(text)) return false;
-    if (/位置|区域/.test(item) && /扬州/.test(text)) return false;
+    if (/位置|区域/.test(item) && destination && text.includes(destination)) return false;
     if (/预约/.test(item) && /预约/.test(text)) return false;
     return true;
   });
@@ -794,7 +819,7 @@ function rememberManualOverride(overrides, key, nextValue, currentValue) {
 function manualOverrideSummary(place) {
   const labels = {
     name: "名称", area: "区域", subCategory: "子分类", featureTags: "特征标签", price: "价格", pros: "优点", cons: "缺点",
-    "details.address": "地址", "details.cuisineType": "餐饮类型", "details.signatureDishes": "招牌菜", "details.sixPersonTotal": "六人总价",
+    "details.address": "地址", "details.cuisineType": "餐饮类型", "details.signatureDishes": "招牌菜", "details.sixPersonTotal": "团队总价",
     "details.horrorLevel": "恐怖程度", "details.difficulty": "难度", "details.venueSize": "场地规模", "details.leisureFacilities": "休闲设施",
   };
   return Object.keys(place.manualOverrides || {}).map((key) => labels[key] || key.replace(/^details\./, "")).join("；");
@@ -831,7 +856,7 @@ async function processLink(id) {
       title = record.title || textSubmissionTitle(text);
     } else {
       const response = await fetch(record.url, {
-        headers: { "User-Agent": "Mozilla/5.0 (compatible; YangzhouTripStudio/1.0; local team research)" },
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; TravelCoCreationStudio/1.0; local team research)" },
         redirect: "follow",
         signal: AbortSignal.timeout(20_000),
       });
@@ -850,17 +875,18 @@ async function processLink(id) {
       organizedStatus: "整理中",
       resultNote: isText ? "文字已接收，正在提取需求条件" : "网页已读取，正在提取事实",
     });
-    const fallback = isText ? demoTextAnalysis(text, category) : demoAnalysis(title, text, category, record.url);
+    const destination = String(initialState.project?.destination || initialState.finalPlan?.destination || "");
+    const fallback = isText ? demoTextAnalysis(text, category, destination) : demoAnalysis(title, text, category, record.url, destination);
     const modelInput = isText
       ? `来源类型：团队文字诉求\n提交人：${record.submitter}\n原始文字：${text}\n补充说明：${record.note || "无"}`
       : `来源类型：网页链接\n链接：${record.url}\n标题：${title}\n正文：${text}`;
-    const analysis = await modelAnalysis(modelInput, fallback, category, isText ? "文字" : "链接");
+    const analysis = await modelAnalysis(modelInput, fallback, category, isText ? "文字" : "链接", initialState);
     const state = await readState();
     const linkIndex = state.links.findIndex((item) => item.id === id);
     if (linkIndex < 0) return;
     const factsFound = stringList(analysis.factsFound, fallback.factsFound).slice(0, 12);
     const rawMissingFields = stringList(analysis.missingFields, fallback.missingFields);
-    const missingFields = (isText ? filterTextMissingFields(rawMissingFields, text) : rawMissingFields).slice(0, 12);
+    const missingFields = (isText ? filterTextMissingFields(rawMissingFields, text, destination) : rawMissingFields).slice(0, 12);
     const resolvedCategory = normalizeCategory(analysis.category || category, `${title} ${analysis.summary || ""}`);
     const inferredSubCategory = inferSubCategory(`${title} ${text}`, resolvedCategory);
     const proposedSubCategory = String(analysis.subCategory || inferredSubCategory).slice(0, 80);
@@ -945,9 +971,9 @@ const headers = {
   report: ["ID", "来源类型", "提交人", "页面标题 / 需求名称", "原始内容", "大类", "子分类", "读取结果", "整理结果", "结果说明", "已提取信息", "缺失信息", "错误原因", "原始链接", "更新时间"],
   decisions: ["ID", "大类", "子分类", "名称", "区域 / 位置", "参考价格", "核心规格", "特征标签", "主要亮点", "主要风险", "资料完整度", "缺失信息", "AI推荐分", "想去票", "可以票", "不考虑票", "人工结论", "是否入选", "人工备注", "人工保护字段", "来源类型", "团队原始诉求", "原始链接"],
   stays: ["ID", "名称", "子分类", "特征标签", "区域", "详细地址", "地段特点", "核心景点距离", "每晚价格", "两晚总价", "额外费用", "押金", "适合人数", "户型", "房间", "床位", "床型", "卫浴", "环境特点", "是否整租", "厨房", "能否烧烤", "烧烤设备/费用", "早餐", "停车", "交通", "入住时间", "退房时间", "取消政策", "预订要求", "预订状态", "优点", "缺点", "推荐分", "资料完整度", "缺失信息", "证据摘要", "想去票", "可以票", "不考虑票", "投票详情", "人工结论", "是否入选", "人工备注", "人工保护字段", "来源类型", "团队原始诉求", "原始链接", "数据状态"],
-  food: ["ID", "名称", "子分类", "特征标签", "适合安排", "区域", "详细地址", "人均价格", "六人预计总价", "招牌菜", "包间", "六人适合度", "排队情况", "营业时间", "预约要求", "取消政策", "停车", "环境特点", "预订状态", "优点", "缺点", "推荐分", "资料完整度", "缺失信息", "证据摘要", "想去票", "可以票", "不考虑票", "投票详情", "人工结论", "是否入选", "人工备注", "人工保护字段", "来源类型", "团队原始诉求", "原始链接", "数据状态"],
-  escapes: ["ID", "名称", "主题名称", "子分类", "特征标签", "区域", "详细地址", "单人价格", "六人预计总价", "恐怖程度", "难度", "玩法类型", "场地规模", "房间数量", "推荐人数", "最少人数", "最多人数", "六人独立开场", "时长", "NPC/真人互动", "体力消耗", "换装", "营业时间", "预约要求", "取消政策", "停车", "预订状态", "优点", "缺点", "推荐分", "资料完整度", "缺失信息", "证据摘要", "想去票", "可以票", "不考虑票", "投票详情", "人工结论", "是否入选", "人工备注", "人工保护字段", "来源类型", "团队原始诉求", "原始链接", "数据状态"],
-  leisure: ["ID", "名称", "子分类", "特征标签", "区域", "详细地址", "人均/套餐价格", "六人预计总价", "包含设施", "套餐内容", "营业时间", "能否过夜", "是否含餐", "休息区域", "独立房间", "男女分区", "适合人数", "使用限制", "环境特点", "停车", "预约要求", "取消政策", "预订状态", "优点", "缺点", "推荐分", "资料完整度", "缺失信息", "证据摘要", "想去票", "可以票", "不考虑票", "投票详情", "人工结论", "是否入选", "人工备注", "人工保护字段", "来源类型", "团队原始诉求", "原始链接", "数据状态"],
+  food: ["ID", "名称", "子分类", "特征标签", "适合安排", "区域", "详细地址", "人均价格", "团队预计总价", "招牌菜", "包间", "团队适合度", "排队情况", "营业时间", "预约要求", "取消政策", "停车", "环境特点", "预订状态", "优点", "缺点", "推荐分", "资料完整度", "缺失信息", "证据摘要", "想去票", "可以票", "不考虑票", "投票详情", "人工结论", "是否入选", "人工备注", "人工保护字段", "来源类型", "团队原始诉求", "原始链接", "数据状态"],
+  escapes: ["ID", "名称", "主题名称", "子分类", "特征标签", "区域", "详细地址", "单人价格", "团队预计总价", "恐怖程度", "难度", "玩法类型", "场地规模", "房间数量", "推荐人数", "最少人数", "最多人数", "团队独立开场", "时长", "NPC/真人互动", "体力消耗", "换装", "营业时间", "预约要求", "取消政策", "停车", "预订状态", "优点", "缺点", "推荐分", "资料完整度", "缺失信息", "证据摘要", "想去票", "可以票", "不考虑票", "投票详情", "人工结论", "是否入选", "人工备注", "人工保护字段", "来源类型", "团队原始诉求", "原始链接", "数据状态"],
+  leisure: ["ID", "名称", "子分类", "特征标签", "区域", "详细地址", "人均/套餐价格", "团队预计总价", "包含设施", "套餐内容", "营业时间", "能否过夜", "是否含餐", "休息区域", "独立房间", "男女分区", "适合人数", "使用限制", "环境特点", "停车", "预约要求", "取消政策", "预订状态", "优点", "缺点", "推荐分", "资料完整度", "缺失信息", "证据摘要", "想去票", "可以票", "不考虑票", "投票详情", "人工结论", "是否入选", "人工备注", "人工保护字段", "来源类型", "团队原始诉求", "原始链接", "数据状态"],
   attractions: ["ID", "名称", "子分类", "特征标签", "区域", "详细地址", "票价", "票价说明", "营业时间", "建议时长", "室内/室外", "天气影响", "预约要求", "取消政策", "停车", "预订状态", "核心看点", "注意事项", "推荐分", "资料完整度", "缺失信息", "证据摘要", "想去票", "可以票", "不考虑票", "投票详情", "人工结论", "是否入选", "人工备注", "人工保护字段", "来源类型", "团队原始诉求", "原始链接", "数据状态"],
   guides: ["ID", "标题", "子分类", "特征标签", "涉及区域", "AI摘要", "避坑信息", "已提取信息", "缺失信息", "资料完整度", "证据摘要", "想去票", "可以票", "不考虑票", "投票详情", "人工结论", "是否入选", "人工备注", "人工保护字段", "来源类型", "团队原始诉求", "原始链接", "数据状态"],
   itinerary: ["日期", "开始时间", "结束时间", "类型", "地点", "活动安排", "详细地址", "交通", "预计费用/人", "预订状态", "注意事项", "来源ID", "来源链接"],
@@ -961,14 +987,14 @@ const sheetDescriptions = {
   "处理报告": "快速查看哪些投递已成功整理、哪些未整理，以及缺失了什么。",
   "候选决策台": "优先在这里筛选：比较价格、位置、核心规格和缺失项；黄色“人工结论 / 是否入选 / 人工备注”可直接修改。",
   "住宿候选": "民宿完整明细：价格、位置、户型、床位、烧烤、费用和取消政策；黄色列可直接修改。",
-  "美食餐饮": "按烧烤、火锅、炒菜、早茶等分类；比较人均、六人总价、包间、排队和招牌菜。",
+  "美食餐饮": "按烧烤、火锅、炒菜、早茶等分类；比较人均、团队总价、包间、排队和招牌菜。",
   "密室候选": "按主题和玩法分类；比较微恐/中恐、难度、规模、人数、价格、NPC 和预约规则。",
   "室内休闲": "按汗蒸、桑拿、洗浴、温泉等分类；比较套餐、设施、过夜、餐食和使用限制。",
   "景点户外": "园林、博物馆、历史街区和户外项目；当前优先确认具体地点、票价、开放时间与天气影响。",
   "攻略文章": "攻略完整明细：摘要、避坑、证据、缺失信息和团队意见；黄色列可直接修改。",
   "两日行程": "包含周五晚抵达，以及周六、周日两天的初版安排。",
   "预订清单": "所有需要团队确认或下单的事项；网站不会代替你付款。",
-  "项目设置": "这次扬州周末旅行的需求约束与运行设置。",
+  "项目设置": "本次团队出行的需求约束与运行设置。",
   "项目总览": "当前资料完成度、候选数量和下一步重点。",
 };
 
@@ -1003,11 +1029,11 @@ function candidateQuality(place, link) {
   const d = place.details || defaultDetails;
   let checks;
   if (place.category === "住宿") {
-    checks = [["详细地址", d.address], ["价格", place.price ?? d.twoNightTotal], ["6 人容量", d.capacity], ["户型", d.roomType], ["房间", d.rooms], ["床位 / 床型", hasUsefulFact(d.beds) ? d.beds : d.bedTypes], ["卫浴", d.bathrooms], ["烧烤", d.barbecue], ["取消政策", d.cancellationPolicy]];
+    checks = [["详细地址", d.address], ["价格", place.price ?? d.twoNightTotal], ["团队人数容量", d.capacity], ["户型", d.roomType], ["房间", d.rooms], ["床位 / 床型", hasUsefulFact(d.beds) ? d.beds : d.bedTypes], ["卫浴", d.bathrooms], ["烧烤", d.barbecue], ["取消政策", d.cancellationPolicy]];
   } else if (place.category === "餐饮") {
-    checks = [["子分类", place.subCategory], ["详细地址", d.address], ["人均价格", place.price], ["招牌菜", d.signatureDishes], ["六人适合度", d.groupSuitability], ["营业时间", d.openingHours], ["预约要求", d.reservation]];
+    checks = [["子分类", place.subCategory], ["详细地址", d.address], ["人均价格", place.price], ["招牌菜", d.signatureDishes], ["团队适合度", d.groupSuitability], ["营业时间", d.openingHours], ["预约要求", d.reservation]];
   } else if (place.category === "密室") {
-    checks = [["主题名称", d.themeName], ["详细地址", d.address], ["单人价格", place.price], ["恐怖程度", d.horrorLevel], ["难度", d.difficulty], ["场地规模", d.venueSize], ["适合人数", d.capacity], ["六人独立开场", d.sixPersonSession], ["时长", place.duration], ["预约要求", d.reservation]];
+    checks = [["主题名称", d.themeName], ["详细地址", d.address], ["单人价格", place.price], ["恐怖程度", d.horrorLevel], ["难度", d.difficulty], ["场地规模", d.venueSize], ["适合人数", d.capacity], ["团队独立开场", d.sixPersonSession], ["时长", place.duration], ["预约要求", d.reservation]];
   } else if (place.category === "休闲娱乐") {
     checks = [["子分类", place.subCategory], ["详细地址", d.address], ["价格", place.price], ["包含设施", d.leisureFacilities], ["营业时间", d.openingHours], ["能否过夜", d.overnight], ["适合人数", d.capacity], ["使用限制", d.serviceRestrictions]];
   } else if (place.category === "景点") {
@@ -1169,7 +1195,7 @@ function writeFinalPlanSheet(workbook, state) {
   widths.forEach((width, index) => { sheet.getColumn(index + 1).width = width; });
 
   sheet.mergeCells("A1:L1");
-  sheet.getCell("A1").value = "扬州旅行 · 最终方案首页";
+  sheet.getCell("A1").value = `${fp.destination}旅行 · 最终方案首页`;
   sheet.getCell("A1").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "173D3B" } };
   sheet.getCell("A1").font = { name: "Songti SC", color: { argb: "FFF8EE" }, size: 22, bold: true };
   sheet.getCell("A1").alignment = { vertical: "middle", horizontal: "center" };
@@ -1195,7 +1221,7 @@ function writeFinalPlanSheet(workbook, state) {
   const stayFields = [
     ["民宿名称", stay.name, "确定住宿后填写真实名称"],
     ["详细地址", stay.address, "尽量填写完整门牌或平台可见地址"],
-    ["适合人数", stay.capacity, "确认房源允许 6 人入住"],
+    ["适合人数", stay.capacity, `确认房源允许 ${fp.people} 人入住`],
     ["房间 / 床位", stay.roomsBeds, "写清房间数、床型和床数"],
     ["两晚总价", stay.twoNightTotal, "填写含清洁费、服务费后的总价"],
     ["入住 / 退房", stay.checkInOut, "填写具体时间和延迟入住限制"],
@@ -1313,7 +1339,7 @@ async function syncToExcel(state) {
   writeInProgress = true;
   try {
     const workbook = new ExcelJS.Workbook();
-    workbook.creator = "下扬州 · 团队旅行共创台";
+    workbook.creator = "出行共创台";
     workbook.created = new Date();
     writeFinalPlanSheet(workbook, state);
 
@@ -1366,7 +1392,7 @@ async function syncToExcel(state) {
       const d = item.details;
       return [item.id, item.name, item.subCategory, item.featureTags.join("；"), d.usage, item.area, d.address, item.price, d.sixPersonTotal, d.signatureDishes, d.privateRoom, d.groupSuitability, d.queueInfo, d.openingHours, d.reservation, d.cancellationPolicy, d.parking, d.environment, d.bookingStatus, item.pros.join("；"), item.cons.join("；"), item.score, quality.ratio, missing, d.evidence, ...placeVoteColumns(item), item.decisionStatus || "待比较", item.selected ? "是" : "否", item.manualNote || "", manualOverrideSummary(item), link?.sourceType || (item.sourceId ? "链接" : "示例"), link?.inputText || "", item.sourceUrl, item.dataStatus];
     }), headers.food.length);
-    styleEditableFields(foodSheet, headers.food, food.length, ["名称", "子分类", "特征标签", "适合安排", "区域", "详细地址", "人均价格", "六人预计总价", "招牌菜", "包间", "六人适合度", "排队情况", "营业时间", "预约要求"]);
+    styleEditableFields(foodSheet, headers.food, food.length, ["名称", "子分类", "特征标签", "适合安排", "区域", "详细地址", "人均价格", "团队预计总价", "招牌菜", "包间", "团队适合度", "排队情况", "营业时间", "预约要求"]);
     styleCandidateDecisions(foodSheet, headers.food, food.length);
     formatCandidateColumns(foodSheet, headers.food, food.length);
 
@@ -1379,7 +1405,7 @@ async function syncToExcel(state) {
       const d = item.details;
       return [item.id, item.name, d.themeName, item.subCategory, item.featureTags.join("；"), item.area, d.address, item.price, d.sixPersonTotal, d.horrorLevel, d.difficulty, d.escapeStyle, d.venueSize, d.roomCount, d.capacity, d.minPlayers, d.maxPlayers, d.sixPersonSession, item.duration, d.npcInteraction, d.physicalIntensity, d.costume, d.openingHours, d.reservation, d.cancellationPolicy, d.parking, d.bookingStatus, item.pros.join("；"), item.cons.join("；"), item.score, quality.ratio, missing, d.evidence, ...placeVoteColumns(item), item.decisionStatus || "待比较", item.selected ? "是" : "否", item.manualNote || "", manualOverrideSummary(item), link?.sourceType || (item.sourceId ? "链接" : "示例"), link?.inputText || "", item.sourceUrl, item.dataStatus];
     }), headers.escapes.length);
-    styleEditableFields(escapeSheet, headers.escapes, escapes.length, ["名称", "主题名称", "子分类", "特征标签", "区域", "详细地址", "单人价格", "六人预计总价", "恐怖程度", "难度", "玩法类型", "场地规模", "房间数量", "推荐人数", "六人独立开场", "时长", "NPC/真人互动"]);
+    styleEditableFields(escapeSheet, headers.escapes, escapes.length, ["名称", "主题名称", "子分类", "特征标签", "区域", "详细地址", "单人价格", "团队预计总价", "恐怖程度", "难度", "玩法类型", "场地规模", "房间数量", "推荐人数", "团队独立开场", "时长", "NPC/真人互动"]);
     styleCandidateDecisions(escapeSheet, headers.escapes, escapes.length);
     formatCandidateColumns(escapeSheet, headers.escapes, escapes.length);
 
@@ -1392,7 +1418,7 @@ async function syncToExcel(state) {
       const d = item.details;
       return [item.id, item.name, item.subCategory, item.featureTags.join("；"), item.area, d.address, item.price, d.sixPersonTotal, d.leisureFacilities, d.packageInfo, d.openingHours, d.overnight, d.includedMeals, d.restArea, d.privateRoom, d.genderArrangement, d.capacity, d.serviceRestrictions, d.environment, d.parking, d.reservation, d.cancellationPolicy, d.bookingStatus, item.pros.join("；"), item.cons.join("；"), item.score, quality.ratio, missing, d.evidence, ...placeVoteColumns(item), item.decisionStatus || "待比较", item.selected ? "是" : "否", item.manualNote || "", manualOverrideSummary(item), link?.sourceType || (item.sourceId ? "链接" : "示例"), link?.inputText || "", item.sourceUrl, item.dataStatus];
     }), headers.leisure.length);
-    styleEditableFields(leisureSheet, headers.leisure, leisure.length, ["名称", "子分类", "特征标签", "区域", "详细地址", "人均/套餐价格", "六人预计总价", "包含设施", "套餐内容", "营业时间", "能否过夜", "是否含餐", "休息区域", "独立房间", "男女分区", "适合人数", "使用限制"]);
+    styleEditableFields(leisureSheet, headers.leisure, leisure.length, ["名称", "子分类", "特征标签", "区域", "详细地址", "人均/套餐价格", "团队预计总价", "包含设施", "套餐内容", "营业时间", "能否过夜", "是否含餐", "休息区域", "独立房间", "男女分区", "适合人数", "使用限制"]);
     styleCandidateDecisions(leisureSheet, headers.leisure, leisure.length);
     formatCandidateColumns(leisureSheet, headers.leisure, leisure.length);
 
@@ -1434,9 +1460,9 @@ async function syncToExcel(state) {
     state.settings.provider = providerLabel();
     const settingsSheet = recreateSheet(workbook, "项目设置", headers.settings);
     replaceRows(settingsSheet, [
-      ["目的地", state.project.destination, "本次主题为扬州"],
+      ["目的地", state.project.destination, `本次主题为${state.project.destination}`],
       ["出行结构", state.tripProfile.schedule, "具体日期待团队确认"],
-      ["同行人数", state.tripProfile.groupSize, "按 6 人统一比较住宿与活动"],
+      ["同行人数", state.tripProfile.groupSize, `按 ${state.tripProfile.groupSize} 人统一比较住宿与活动`],
       ["住宿晚数", state.tripProfile.nights, "周五、周六两晚"],
       ["住宿偏好", state.tripProfile.stayPreference, "重点检查房间、床位、卫浴与环境"],
       ["住宿预算", state.tripProfile.accommodationBudget, "确认日期后再定预算"],
@@ -1452,7 +1478,7 @@ async function syncToExcel(state) {
     const unorganizedLinks = state.links.filter((item) => item.organizedStatus === "未整理").length;
     const overviewSheet = recreateSheet(workbook, "项目总览", headers.overview);
     replaceRows(overviewSheet, [
-      ["旅行框架", "周五晚 + 周六周日", "6 人，住宿两晚"],
+      ["旅行框架", state.tripProfile.schedule, `${state.tripProfile.groupSize} 人，住宿 ${state.tripProfile.nights} 晚`],
       ["已收集投递", state.links.length, `链接 ${state.links.filter((item) => item.sourceType !== "文字").length} · 文字 ${state.links.filter((item) => item.sourceType === "文字").length}`],
       ["已整理投递", completedLinks, "已形成候选资料并写入分类表"],
       ["未整理投递", unorganizedLinks, "请在处理报告查看原因并补充信息"],
@@ -1465,7 +1491,7 @@ async function syncToExcel(state) {
 
     for (const sheet of workbook.worksheets) {
       sheet.pageSetup = { ...(sheet.pageSetup || {}), orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.25, right: 0.25, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 } };
-      sheet.headerFooter = { ...(sheet.headerFooter || {}), oddFooter: "&L扬州团队旅行攻略&R第 &P / &N 页" };
+      sheet.headerFooter = { ...(sheet.headerFooter || {}), oddFooter: `&L${state.project.destination}出行共创&R第 &P / &N 页` };
     }
     state.settings.lastExcelSync = new Date().toISOString();
     await writeState(state);
@@ -1611,9 +1637,9 @@ async function importFromExcel() {
   const hasFinalPlanHome = importFinalPlanHome(workbook, state);
   const configs = [
     { sheetName: "住宿候选", category: "住宿", priceColumn: "每晚价格", detailColumns: { address: "详细地址", locationHighlights: "地段特点", distanceToCore: "核心景点距离", capacity: "适合人数", roomType: "户型", rooms: "房间", beds: "床位", bedTypes: "床型", bathrooms: "卫浴", twoNightTotal: "两晚总价", extraFees: "额外费用", deposit: "押金", environment: "环境特点", entireRental: "是否整租", kitchen: "厨房", barbecue: "能否烧烤", bbqEquipment: "烧烤设备/费用", breakfast: "早餐", parking: "停车", transport: "交通", checkIn: "入住时间", checkOut: "退房时间", cancellationPolicy: "取消政策", reservation: "预订要求", bookingStatus: "预订状态", evidence: "证据摘要" } },
-    { sheetName: "美食餐饮", category: "餐饮", priceColumn: "人均价格", detailColumns: { usage: "适合安排", address: "详细地址", sixPersonTotal: "六人预计总价", signatureDishes: "招牌菜", privateRoom: "包间", groupSuitability: "六人适合度", queueInfo: "排队情况", openingHours: "营业时间", reservation: "预约要求", cancellationPolicy: "取消政策", parking: "停车", environment: "环境特点", bookingStatus: "预订状态", evidence: "证据摘要" } },
-    { sheetName: "密室候选", category: "密室", priceColumn: "单人价格", durationColumn: "时长", detailColumns: { themeName: "主题名称", address: "详细地址", sixPersonTotal: "六人预计总价", horrorLevel: "恐怖程度", difficulty: "难度", escapeStyle: "玩法类型", venueSize: "场地规模", roomCount: "房间数量", capacity: "推荐人数", minPlayers: "最少人数", maxPlayers: "最多人数", sixPersonSession: "六人独立开场", npcInteraction: "NPC/真人互动", physicalIntensity: "体力消耗", costume: "换装", openingHours: "营业时间", reservation: "预约要求", cancellationPolicy: "取消政策", parking: "停车", bookingStatus: "预订状态", evidence: "证据摘要" } },
-    { sheetName: "室内休闲", category: "休闲娱乐", priceColumn: "人均/套餐价格", detailColumns: { address: "详细地址", sixPersonTotal: "六人预计总价", leisureFacilities: "包含设施", packageInfo: "套餐内容", openingHours: "营业时间", overnight: "能否过夜", includedMeals: "是否含餐", restArea: "休息区域", privateRoom: "独立房间", genderArrangement: "男女分区", capacity: "适合人数", serviceRestrictions: "使用限制", environment: "环境特点", parking: "停车", reservation: "预约要求", cancellationPolicy: "取消政策", bookingStatus: "预订状态", evidence: "证据摘要" } },
+    { sheetName: "美食餐饮", category: "餐饮", priceColumn: "人均价格", detailColumns: { usage: "适合安排", address: "详细地址", sixPersonTotal: "团队预计总价", signatureDishes: "招牌菜", privateRoom: "包间", groupSuitability: "团队适合度", queueInfo: "排队情况", openingHours: "营业时间", reservation: "预约要求", cancellationPolicy: "取消政策", parking: "停车", environment: "环境特点", bookingStatus: "预订状态", evidence: "证据摘要" } },
+    { sheetName: "密室候选", category: "密室", priceColumn: "单人价格", durationColumn: "时长", detailColumns: { themeName: "主题名称", address: "详细地址", sixPersonTotal: "团队预计总价", horrorLevel: "恐怖程度", difficulty: "难度", escapeStyle: "玩法类型", venueSize: "场地规模", roomCount: "房间数量", capacity: "推荐人数", minPlayers: "最少人数", maxPlayers: "最多人数", sixPersonSession: "团队独立开场", npcInteraction: "NPC/真人互动", physicalIntensity: "体力消耗", costume: "换装", openingHours: "营业时间", reservation: "预约要求", cancellationPolicy: "取消政策", parking: "停车", bookingStatus: "预订状态", evidence: "证据摘要" } },
+    { sheetName: "室内休闲", category: "休闲娱乐", priceColumn: "人均/套餐价格", detailColumns: { address: "详细地址", sixPersonTotal: "团队预计总价", leisureFacilities: "包含设施", packageInfo: "套餐内容", openingHours: "营业时间", overnight: "能否过夜", includedMeals: "是否含餐", restArea: "休息区域", privateRoom: "独立房间", genderArrangement: "男女分区", capacity: "适合人数", serviceRestrictions: "使用限制", environment: "环境特点", parking: "停车", reservation: "预约要求", cancellationPolicy: "取消政策", bookingStatus: "预订状态", evidence: "证据摘要" } },
     { sheetName: "景点户外", category: "景点", priceColumn: "票价", detailColumns: { address: "详细地址", ticketInfo: "票价说明", openingHours: "营业时间", recommendedDuration: "建议时长", indoorOutdoor: "室内/室外", weatherImpact: "天气影响", reservation: "预约要求", cancellationPolicy: "取消政策", parking: "停车", bookingStatus: "预订状态", evidence: "证据摘要" } },
   ];
   for (const { sheetName, category, priceColumn, durationColumn, detailColumns } of configs) {
@@ -1878,7 +1904,7 @@ const server = http.createServer(async (request, response) => {
       const bytes = await fs.readFile(workbookPath);
       response.writeHead(200, {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent("扬州团队旅行攻略.xlsx")}`,
+        "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(workbookFileName)}`,
         "Access-Control-Allow-Origin": "*",
         "Content-Length": bytes.length,
       });
@@ -2008,7 +2034,7 @@ const server = http.createServer(async (request, response) => {
 });
 
 server.listen(port, host, () => {
-  console.log(`Yangzhou Trip API: http://localhost:${port}`);
+  console.log(`Travel Co-creation API: http://localhost:${port}`);
 });
 
 try { lastKnownWorkbookMtime = (await fs.stat(workbookPath)).mtimeMs; } catch { lastKnownWorkbookMtime = 0; }

@@ -65,7 +65,7 @@ nav button.nav-active::after { width: 18px; transform: translateX(-50%); }
 .small-button { border: 1px solid var(--line); padding: 8px 12px; font-size: 12px; background: var(--white); }
 
 .route-card { min-height: 486px; padding: 34px 38px; background: var(--ink); color: #eef6ef; box-shadow: 24px 24px 0 var(--paper-deep), var(--shadow); position: relative; overflow: hidden; }
-.route-card::after { content: "扬州"; position: absolute; right: -24px; bottom: -35px; font-family: var(--font-serif), serif; font-size: 122px; font-weight: 700; color: rgba(255,255,255,.035); letter-spacing: -.08em; }
+.route-card::after { content: "出行"; position: absolute; right: -24px; bottom: -35px; font-family: var(--font-serif), serif; font-size: 122px; font-weight: 700; color: rgba(255,255,255,.035); letter-spacing: -.08em; }
 .route-card-head { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 26px; border-bottom: 1px solid rgba(255,255,255,.13); }
 .route-card-head span, .route-card-head strong { display: block; }
 .route-card-head div > span { color: #9db4af; font-size: 11px; letter-spacing: .12em; }

@@ -14,13 +14,13 @@ async function render() {
   );
 }
 
-test("server renders the Yangzhou trip workspace", async () => {
+test("server renders the reusable travel co-creation workspace", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>下扬州 · 团队旅行共创台<\/title>/);
+  assert.match(html, /<title>出行共创台 · 把大家的想法整理成一份行程<\/title>/);
   assert.match(html, /团队最终行程/);
   assert.match(html, /投递链接或想法/);
   assert.match(html, /住宿与待确认事项/);
@@ -34,16 +34,18 @@ test("server renders the Yangzhou trip workspace", async () => {
 });
 
 test("local data and the generated workbook are present", async () => {
-  const [stateText, workbook] = await Promise.all([
+  const [stateText, templateText, workbook] = await Promise.all([
     readFile(new URL("../data/store.json", import.meta.url), "utf8"),
+    readFile(new URL("../data/trip-template.json", import.meta.url), "utf8"),
     readFile(
       new URL(
-        "../outputs/019f7eda-a998-7660-a73d-e43b3af67965/扬州团队旅行攻略.xlsx",
+        "../outputs/019f7eda-a998-7660-a73d-e43b3af67965/出行共创项目.xlsx",
         import.meta.url,
       ),
     ),
   ]);
   const state = JSON.parse(stateText);
+  const template = JSON.parse(templateText);
 
   assert.equal(state.project.destination, "扬州");
   assert.equal(state.project.days, 2);
@@ -53,6 +55,9 @@ test("local data and the generated workbook are present", async () => {
   assert.ok(state.places.every((place) => Array.isArray(place.featureTags)));
   assert.ok(state.links.every((item) => ["链接", "文字"].includes(item.sourceType)));
   assert.ok(state.links.every((item) => typeof item.inputText === "string"));
+  assert.equal(template.project.destination, "待确定目的地");
+  assert.deepEqual(template.links, []);
+  assert.deepEqual(template.places, []);
   const subCategories = {
     住宿: ["民宿", "酒店", "公寓", "客栈", "度假村", "其他住宿"],
     餐饮: ["烧烤", "火锅", "早茶早餐", "炒菜正餐", "自助餐", "夜宵", "甜品饮品", "咖啡", "酒吧", "其他餐饮"],

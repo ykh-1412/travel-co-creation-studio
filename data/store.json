@@ -148,7 +148,7 @@
       ],
       "area": "扬州市区",
       "price": 200,
-      "priceLabel": "单人预算200元以内",
+      "priceLabel": "参考 ¥200",
       "duration": "周日上午场次",
       "score": 3.5,
       "tags": [
@@ -1330,7 +1330,7 @@
   "settings": {
     "provider": "DeepSeek · deepseek-v4-flash",
     "workbookPath": "outputs/019f7eda-a998-7660-a73d-e43b3af67965/扬州团队旅行攻略.xlsx",
-    "lastExcelSync": "2026-07-22T02:35:00.936Z"
+    "lastExcelSync": "2026-07-24T02:46:12.304Z"
   },
   "tripProfile": {
     "planVersion": "weekend-v2",
@@ -1660,6 +1660,6 @@
         "note": "以官方开放时间和预约规则为准"
       }
     ],
-    "updatedAt": "2026-07-21T09:42:58.288Z"
+    "updatedAt": "2026-07-24T02:36:30.361Z"
   }
 }

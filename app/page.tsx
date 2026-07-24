@@ -182,7 +182,7 @@ type AppState = {
 };
 
 const EMPTY_STATE: AppState = {
-  project: { name: "扬州周末共创攻略", destination: "扬州", days: 2, people: 6, budget: 6000, status: "方案共创中", tagline: "周五晚集合，周末一起住、一起吃、一起玩。" },
+  project: { name: "我的出行共创项目", destination: "待确定目的地", days: 2, people: 6, budget: 6000, status: "方案共创中", tagline: "把分散的链接和想法，整理成大家都看得懂的出行方案。" },
   tripProfile: { dates: "待团队确认", schedule: "周五晚抵达 · 周日傍晚返程", groupSize: 6, nights: 2, stayPreference: "环境好、整租优先、至少 3 个独立睡眠空间", barbecue: "周六晚在民宿烧烤", breakfasts: ["周六早茶", "周日早餐"], activity: "6 人密室 / 团队活动", accommodationBudget: "待团队确认" },
   links: [],
   places: [],
@@ -190,8 +190,8 @@ const EMPTY_STATE: AppState = {
   reservations: [],
   finalPlan: {
     version: "excel-home-v1",
-    title: "6 人扬州周末旅行",
-    destination: "扬州",
+    title: "我的出行共创项目",
+    destination: "待确定目的地",
     dates: "待团队确认",
     schedule: "周五晚抵达 · 周日傍晚返程",
     people: 6,
@@ -239,8 +239,8 @@ function sourceName(url: string) {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return "链接"; }
 }
 
-function mapSearchUrl(keyword: string) {
-  return `https://uri.amap.com/search?keyword=${encodeURIComponent(keyword)}&city=扬州&src=yangzhou-trip`;
+function mapSearchUrl(keyword: string, city: string) {
+  return `https://uri.amap.com/search?keyword=${encodeURIComponent(keyword)}&city=${encodeURIComponent(city)}&src=travel-co-creation`;
 }
 
 function voteSummary(place: Place) {
@@ -252,10 +252,10 @@ function voteSummary(place: Place) {
   };
 }
 
-function importantDetails(place: Place) {
+function importantDetails(place: Place, teamPeople: number) {
   const d = place.details;
-  if (place.category === "住宿") return [["位置", d.address], ["两晚价格", !isPending(d.twoNightTotal) ? d.twoNightTotal : place.priceLabel], ["户型 / 房间", `${d.roomType} / ${d.rooms}`], ["床位 / 床型", `${d.beds} / ${d.bedTypes}`], ["6 人容量", d.capacity], ["烧烤", d.barbecue], ["额外费用", d.extraFees], ["取消政策", d.cancellationPolicy]];
-  if (place.category === "餐饮") return [["餐饮分类", place.subCategory], ["位置", d.address], ["参考人均", place.priceLabel], ["六人总价", d.sixPersonTotal], ["招牌菜", d.signatureDishes], ["包间 / 六人", `${d.privateRoom} / ${d.groupSuitability}`], ["排队", d.queueInfo], ["营业时间", d.openingHours]];
+  if (place.category === "住宿") return [["位置", d.address], ["两晚价格", !isPending(d.twoNightTotal) ? d.twoNightTotal : place.priceLabel], ["户型 / 房间", `${d.roomType} / ${d.rooms}`], ["床位 / 床型", `${d.beds} / ${d.bedTypes}`], [`${teamPeople} 人容量`, d.capacity], ["烧烤", d.barbecue], ["额外费用", d.extraFees], ["取消政策", d.cancellationPolicy]];
+  if (place.category === "餐饮") return [["餐饮分类", place.subCategory], ["位置", d.address], ["参考人均", place.priceLabel], ["团队总价", d.sixPersonTotal], ["招牌菜", d.signatureDishes], ["包间 / 团队", `${d.privateRoom} / ${d.groupSuitability}`], ["排队", d.queueInfo], ["营业时间", d.openingHours]];
   if (place.category === "密室") return [["主题", d.themeName], ["位置", d.address], ["恐怖 / 难度", `${d.horrorLevel} / ${d.difficulty}`], ["规模", `${d.venueSize} / ${d.roomCount}`], ["六人开场", d.sixPersonSession], ["价格", !isPending(d.sixPersonTotal) ? d.sixPersonTotal : place.priceLabel], ["时长", place.duration], ["NPC", d.npcInteraction]];
   if (place.category === "休闲娱乐") return [["休闲类型", place.subCategory], ["位置", d.address], ["参考价格", place.priceLabel], ["包含设施", d.leisureFacilities], ["能否过夜", d.overnight], ["是否含餐", d.includedMeals], ["休息区域", d.restArea], ["使用限制", d.serviceRestrictions]];
   if (place.category === "景点") return [["游玩类型", place.subCategory], ["具体地点", d.address], ["票价", !isPending(d.ticketInfo) ? d.ticketInfo : place.priceLabel], ["开放时间", d.openingHours], ["建议时长", !isPending(d.recommendedDuration) ? d.recommendedDuration : place.duration], ["室内 / 室外", d.indoorOutdoor], ["天气影响", d.weatherImpact], ["预约", d.reservation]];
@@ -306,7 +306,7 @@ export default function Home() {
 
   useEffect(() => {
     const initial = window.setTimeout(() => {
-      const savedNickname = window.localStorage.getItem("yangzhou-team-nickname") || "团队成员";
+      const savedNickname = window.localStorage.getItem("travel-team-nickname") || window.localStorage.getItem("yangzhou-team-nickname") || "团队成员";
       setNickname(savedNickname);
       setSubmitter(savedNickname);
       setBackendBase(apiBase());
@@ -320,7 +320,7 @@ export default function Home() {
     const next = value.slice(0, 20);
     setNickname(next);
     setSubmitter(next || "团队成员");
-    if (next.trim()) window.localStorage.setItem("yangzhou-team-nickname", next.trim());
+    if (next.trim()) window.localStorage.setItem("travel-team-nickname", next.trim());
   }
 
   const stats = useMemo(() => ({
@@ -431,7 +431,7 @@ export default function Home() {
       setMessage("请先填写你的昵称，再参与选择。");
       return;
     }
-    window.localStorage.setItem("yangzhou-team-nickname", voter);
+    window.localStorage.setItem("travel-team-nickname", voter);
     try {
       const response = await fetch(`${apiBase()}/api/places/${encodeURIComponent(id)}/vote`, {
         method: "POST",
@@ -487,10 +487,15 @@ export default function Home() {
     }
   }
 
+  const destination = finalPlan.destination || state.project.destination || "待确定目的地";
+  const brandName = isPending(destination) ? "出行共创" : `去${destination}`;
+  const brandSeal = isPending(destination) ? "行" : destination.slice(0, 1);
+  const workbookName = state.settings.workbookPath.split(/[\\/]/).pop() || "出行共创项目.xlsx";
+
   return (
     <main>
       <header className="topbar">
-        <button className="brand" onClick={() => setActiveTab("plan")} aria-label="返回行程"><span className="brand-seal">扬</span><span><strong>下扬州</strong><small>6 人周末计划</small></span></button>
+        <button className="brand" onClick={() => setActiveTab("plan")} aria-label="返回行程"><span className="brand-seal">{brandSeal}</span><span><strong>{brandName}</strong><small>{finalPlan.people} 人 · {state.project.days} 天共创</small></span></button>
         <nav aria-label="网站主导航">{tabs.map(([key, label]) => <button key={key} className={activeTab === key ? "nav-active" : ""} onClick={() => setActiveTab(key)}>{label}</button>)}</nav>
         <div className={`connection ${connected ? "online" : "offline"}`}><span aria-hidden="true" />{connected ? "已连接并自动同步" : "正在连接"}</div>
       </header>
@@ -526,7 +531,7 @@ export default function Home() {
             <article className="stay-summary-card">
               <header><div><span>两晚住宿</span><h3>{finalPlan.stay.name}</h3></div><StatusPill value={finalPlan.stay.name} /></header>
               <div className="stay-summary-fields"><FinalField label="地址" value={finalPlan.stay.address} /><FinalField label="房间 / 床位" value={finalPlan.stay.roomsBeds} /><FinalField label="两晚总价" value={finalPlan.stay.twoNightTotal} /><FinalField label="周六烧烤" value={finalPlan.stay.barbecue} /></div>
-              <div className="card-link-row">{!isPending(finalPlan.stay.address) && <a href={mapSearchUrl(finalPlan.stay.address)} target="_blank" rel="noreferrer">在高德地图查看</a>}{finalPlan.stay.sourceUrl && <a href={finalPlan.stay.sourceUrl} target="_blank" rel="noreferrer">查看民宿原链接</a>}</div>
+              <div className="card-link-row">{!isPending(finalPlan.stay.address) && <a href={mapSearchUrl(finalPlan.stay.address, destination)} target="_blank" rel="noreferrer">在高德地图查看</a>}{finalPlan.stay.sourceUrl && <a href={finalPlan.stay.sourceUrl} target="_blank" rel="noreferrer">查看民宿原链接</a>}</div>
             </article>
             <article className="pending-card">
               <header><span>下一步</span><h3>优先确认这几项</h3></header>
@@ -575,7 +580,7 @@ export default function Home() {
         <div className="place-grid simple-place-grid">{filteredPlaces.map((place) => {
           const votes = voteSummary(place);
           const myVote = place.votes?.[nickname.trim()];
-          const details = importantDetails(place).slice(0, 4);
+          const details = importantDetails(place, finalPlan.people).slice(0, 4);
           return <article className={`place-card simple-place-card ${place.selected ? "chosen-card" : ""}`} key={place.id}>
           <div className="place-top"><span className="place-category">{place.category} · {place.subCategory}</span><span className={place.selected ? "selected-mark" : `candidate-mark decision-${place.decisionStatus || "待比较"}`}>{place.selected ? "已入选" : place.decisionStatus || "待比较"}</span></div>
           <h3>{place.name}</h3><p className="place-meta">{place.area} · {place.category === "住宿" && !isPending(place.details.twoNightTotal) ? place.details.twoNightTotal : place.priceLabel}</p>
@@ -584,7 +589,7 @@ export default function Home() {
           <div className="detail-grid compact-details">{details.map(([label, detail]) => <div key={label}><span>{label}</span><strong>{detail}</strong></div>)}</div>
           <div className="vote-panel"><div className="vote-summary"><strong>{votes.support}</strong><span>人想去</span><small>{votes.okay} 人可以 · {votes.reject} 人不考虑</small></div><div className="vote-buttons">{voteChoices.map((choice) => <button key={choice} className={myVote === choice ? "selected" : ""} onClick={() => voteForPlace(place.id, choice)}>{choice}</button>)}</div></div>
           <details className="candidate-details"><summary>查看更多资料</summary><div className="place-tags">{[...new Set([place.subCategory, ...place.featureTags, ...place.tags])].map((tag) => <span key={tag}>{tag}</span>)}</div>{place.keyMissing?.length ? <p className="candidate-missing"><b>缺失项：</b>{place.keyMissing.join(" · ")}</p> : null}{place.manualNote ? <p className="candidate-manual-note"><b>人工备注：</b>{place.manualNote}</p> : null}{Object.keys(place.manualOverrides || {}).length ? <p className="candidate-manual-note"><b>人工保护：</b>{Object.keys(place.manualOverrides || {}).length} 个字段不会被重新分析覆盖</p> : null}<div className="place-footer"><div><span>参考预算</span><strong>{place.priceLabel}</strong></div><div className="score"><span>推荐度</span><strong>{place.score.toFixed(1)}</strong></div></div><p className="data-state">数据状态：{place.dataStatus}</p></details>
-          <div className="card-link-row">{place.details.address && !isPending(place.details.address) && <a href={mapSearchUrl(place.details.address)} target="_blank" rel="noreferrer">地图</a>}{place.sourceUrl && <a href={place.sourceUrl} target="_blank" rel="noreferrer">原始链接</a>}</div>
+          <div className="card-link-row">{place.details.address && !isPending(place.details.address) && <a href={mapSearchUrl(place.details.address, destination)} target="_blank" rel="noreferrer">地图</a>}{place.sourceUrl && <a href={place.sourceUrl} target="_blank" rel="noreferrer">原始链接</a>}</div>
         </article>})}</div>
         {!filteredPlaces.length && <div className="empty-state">当前筛选下没有重点候选，可以查看全部或继续投递链接与想法。</div>}
       </section>}
@@ -592,7 +597,7 @@ export default function Home() {
       {activeTab === "manage" && <section className="shell workspace-page manage-page">
         <div className="page-title"><p className="eyebrow">Excel 管理</p><h1>你在 Excel 里分类、比较和定稿。</h1><p>先在「候选决策台」看全局，再到美食、密室、休闲或住宿分表补充黄色字段，最后把确定结果写进「行程首页」。</p></div>
         <div className="decision-overview"><div><span>全部候选</span><strong>{decisionStats.total}</strong></div><div><span>拟定 / 备选</span><strong>{decisionStats.shortlist}</strong></div><div><span>资料完整 ≥ 75%</span><strong>{decisionStats.complete}</strong></div><div><span>已淘汰</span><strong>{decisionStats.rejected}</strong></div></div>
-        <div className="excel-hero"><div className="excel-file-icon">X</div><div className="excel-file-info"><span>主操作文件</span><h2>扬州团队旅行攻略.xlsx</h2><p>打开后先看第二张「候选决策台」 · 最近同步：{formatTime(state.settings.lastExcelSync)}</p></div><div className="excel-actions"><a className="primary" href={`${backendBase}/api/download/excel`}>打开 Excel 决策台</a><button className="small-button" onClick={syncExcel}>立即读取修改</button></div></div>
+        <div className="excel-hero"><div className="excel-file-icon">X</div><div className="excel-file-info"><span>主操作文件</span><h2>{workbookName}</h2><p>打开后先看第二张「候选决策台」 · 最近同步：{formatTime(state.settings.lastExcelSync)}</p></div><div className="excel-actions"><a className="primary" href={`${backendBase}/api/download/excel`}>打开 Excel 决策台</a><button className="small-button" onClick={syncExcel}>立即读取修改</button></div></div>
 
         <div className="manage-choice-grid">
           <article className="recommended-choice"><span>推荐流程</span><h2>先收集想法，再补全，最后定行程</h2><p>链接和文字都会进入分类表；黄色单元格是你可以人工确认和修正的内容。</p><ol><li>在「候选决策台」按大类和子分类筛选</li><li>查看团队原始诉求，再补充真实商户信息</li><li>黄色列改过的内容会被人工保护</li><li>最后把确定内容写进「行程首页」</li></ol></article>
@@ -606,7 +611,7 @@ export default function Home() {
         <div className="scope-note safety"><strong>不会自动下单</strong><p>网站只负责整理和展示。住宿、餐厅、密室与门票都需要大家确认真实价格和取消政策后再预订。</p></div>
       </section>}
 
-      <footer><div className="shell"><span>下扬州 · 团队旅行共创台</span><span>本地数据 · Excel 可编辑 · DeepSeek 整理</span></div></footer>
+      <footer><div className="shell"><span>{destination} · 出行共创台</span><span>本地数据 · Excel 可编辑 · DeepSeek 整理</span></div></footer>
     </main>
   );
 }

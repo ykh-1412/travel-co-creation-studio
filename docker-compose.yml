@@ -1,5 +1,5 @@
 services:
-  yangzhou-trip:
+  travel-co-creation:
     build: .
     restart: unless-stopped
     env_file:
