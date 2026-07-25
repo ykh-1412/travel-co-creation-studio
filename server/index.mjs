@@ -494,8 +494,12 @@ function safeCredentialMatch(actual, expected) {
 
 function isPublicTunnelRequest(request) {
   if (/^(1|true|yes)$/i.test(process.env.PUBLIC_REQUIRE_PASSWORD || "")) return true;
-  const hostHeader = String(request.headers.host || "");
-  return Boolean(request.headers["cf-connecting-ip"]) || hostHeader.endsWith(".trycloudflare.com");
+  const hostHeader = String(request.headers.host || "").toLowerCase().split(":")[0];
+  return (
+    Boolean(request.headers["cf-connecting-ip"]) ||
+    hostHeader.endsWith(".trycloudflare.com") ||
+    hostHeader.endsWith(".ts.net")
+  );
 }
 
 function publicAccessToken() {

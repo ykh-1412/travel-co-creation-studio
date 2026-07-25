@@ -67,6 +67,30 @@ npm start
 npm run local
 ```
 
+## 当前扬州固定公网入口
+
+团队成员可打开：
+
+```text
+https://yangzhou-trip.tail84dc10.ts.net/
+```
+
+- 朋友无需安装 Tailscale 或注册账号，只需输入团队共享密码
+- 公网地址由本机 Tailscale Funnel 转发到 `127.0.0.1:8787`
+- 网站能否访问取决于这台 Mac、Clash、网页服务、后台服务和 Tailscale 转发均保持运行
+- 密码读取本机 `.env` 的 `PUBLIC_ACCESS_PASSWORD`，不要把真实密码提交到 GitHub
+- 原来的 `trycloudflare.com` 是临时地址，已停止使用
+
+本机维护信息：
+
+```text
+网页日志：logs/web.log、logs/web.error.log
+后台日志：logs/api.log、logs/api.error.log
+公网转发日志：logs/tailscaled.log、logs/tailscaled.error.log
+```
+
+Tailscale 后台服务开机自动启动；刚开机时通常需要约 10 秒完成联网。Clash 当前混合代理端口为 `7897`，如果以后修改 Clash 端口，也要同步修改本机 Tailscale LaunchAgent 中的代理地址。
+
 ## 用 Docker 部署到服务器
 
 ```bash
