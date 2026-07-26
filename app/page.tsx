@@ -25,8 +25,11 @@ type LinkRecord = {
   updatedAt: string;
   summary: string;
   model: string;
+  candidateCount?: number;
   error?: string;
 };
+
+type CandidateKind = "place" | "requirement" | "guide";
 
 type PlaceDetails = {
   address: string;
@@ -92,6 +95,7 @@ type PlaceDetails = {
 type Place = {
   id: string;
   sourceId?: string;
+  candidateType?: CandidateKind | "真实地点" | "团队诉求" | "攻略资料" | string;
   name: string;
   category: string;
   subCategory: string;
@@ -100,6 +104,9 @@ type Place = {
   price: number | null;
   priceLabel: string;
   duration: string;
+  summary?: string;
+  factsFound?: string[];
+  missingFields?: string[];
   score: number;
   tags: string[];
   pros: string[];
@@ -113,6 +120,7 @@ type Place = {
   keyMissing?: string[];
   sourceUrl: string;
   dataStatus: string;
+  verificationStatus: string;
   details: PlaceDetails;
 };
 
@@ -179,6 +187,7 @@ type AppState = {
   reservations: Reservation[];
   finalPlan: FinalPlan;
   settings: { provider: string; workbookPath: string; lastExcelSync: string };
+  capabilities?: { canManage: boolean };
 };
 
 const EMPTY_STATE: AppState = {
@@ -204,11 +213,14 @@ const EMPTY_STATE: AppState = {
     updatedAt: "",
   },
   settings: { provider: "演示分析", workbookPath: "", lastExcelSync: "" },
+  capabilities: { canManage: false },
 };
 
-const tabs = [["plan", "看行程"], ["collect", "投递想法"], ["library", "重点候选"], ["manage", "Excel 管理"]] as const;
+const teamTabs = [["plan", "看行程"], ["collect", "投递想法"], ["library", "候选与需求"]] as const;
+const manageTab = ["manage", "主电脑管理"] as const;
+type TabKey = (typeof teamTabs)[number][0] | typeof manageTab[0];
 const categories = ["自动识别", "攻略文章", "住宿", "餐饮", "密室", "室内休闲", "景点户外"];
-const mainFilters = ["全部", "住宿", "餐饮", "密室", "休闲娱乐", "景点", "攻略"];
+const mainFilters = ["全部", "住宿", "餐饮", "密室", "休闲娱乐", "景点"];
 const voteChoices: VoteChoice[] = ["想去", "可以", "不考虑"];
 
 function formatTime(value: string) {
@@ -218,9 +230,9 @@ function formatTime(value: string) {
 }
 
 function statusTone(status: string) {
-  if (["已写入Excel", "已整理", "成功读取", "文字已接收", "已预订", "已完成", "已确定"].includes(status)) return "success";
-  if (["处理失败", "需要人工补充", "未整理", "读取失败", "读取受限", "文字解析失败", "待补充", "待确认", "待预订"].includes(status)) return "warning";
-  if (["正在读取", "AI分析中", "整理中", "等待读取", "等待处理"].includes(status)) return "active";
+  if (["已写入Excel", "已整理", "成功读取", "文字已接收", "已预订", "已完成", "已确定", "已核实"].includes(status)) return "success";
+  if (["处理失败", "需要人工补充", "未整理", "读取失败", "读取受限", "文字解析失败", "待补充", "待确认", "待预订", "待核实"].includes(status)) return "warning";
+  if (["正在读取", "AI分析中", "整理中", "等待读取", "等待处理", "部分核实"].includes(status)) return "active";
   return "muted";
 }
 
@@ -231,16 +243,35 @@ function isPending(value: unknown) {
 
 function apiBase() {
   if (typeof window === "undefined") return "http://localhost:8787";
-  if (!window.location.port || window.location.port === "8787") return window.location.origin;
-  return `${window.location.protocol}//${window.location.hostname}:8787`;
+  if (window.location.port === "3000") return `${window.location.protocol}//${window.location.hostname}:8787`;
+  return window.location.origin;
 }
 
 function sourceName(url: string) {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return "链接"; }
 }
 
-function mapSearchUrl(keyword: string, city: string) {
-  return `https://uri.amap.com/search?keyword=${encodeURIComponent(keyword)}&city=${encodeURIComponent(city)}&src=travel-co-creation`;
+function mapSearchUrl(keyword: string, city?: string) {
+  const params = new URLSearchParams({ keyword, src: "travel-co-creation" });
+  if (city && !isPending(city)) params.set("city", city);
+  return `https://uri.amap.com/search?${params.toString()}`;
+}
+
+function candidateKind(place: Place): CandidateKind {
+  const value = String(place.candidateType || "").toLowerCase();
+  if (/requirement|需求|诉求|偏好/.test(value)) return "requirement";
+  if (/guide|攻略|article|资料/.test(value) || place.category === "攻略" || place.category === "攻略文章") return "guide";
+  return "place";
+}
+
+function candidateKindLabel(place: Place) {
+  return candidateKind(place) === "requirement" ? "团队诉求" : candidateKind(place) === "guide" ? "攻略资料" : "真实地点";
+}
+
+function linkBucket(item: LinkRecord): "processing" | "needs" | "complete" {
+  if (["等待处理", "正在读取", "AI分析中"].includes(item.status) || item.organizedStatus === "整理中") return "processing";
+  if (item.status === "处理失败" || item.status === "需要人工补充" || item.organizedStatus === "未整理" || /失败|受限|补充/.test(item.readStatus)) return "needs";
+  return "complete";
 }
 
 function voteSummary(place: Place) {
@@ -274,7 +305,7 @@ function clonePlan(plan: FinalPlan): FinalPlan {
 
 export default function Home() {
   const [state, setState] = useState<AppState>(EMPTY_STATE);
-  const [activeTab, setActiveTab] = useState<(typeof tabs)[number][0]>("plan");
+  const [activeTab, setActiveTab] = useState<TabKey>("plan");
   const [submissionMode, setSubmissionMode] = useState<"link" | "text">("link");
   const [urls, setUrls] = useState("");
   const [ideaText, setIdeaText] = useState("");
@@ -288,6 +319,13 @@ export default function Home() {
   const [libraryFilter, setLibraryFilter] = useState("全部");
   const [subCategoryFilter, setSubCategoryFilter] = useState("全部子类");
   const [showAllCandidates, setShowAllCandidates] = useState(false);
+  const [candidateSort, setCandidateSort] = useState<"recommended" | "votes" | "complete" | "price">("recommended");
+  const [compareIds, setCompareIds] = useState<string[]>([]);
+  const [sourceFocus, setSourceFocus] = useState("");
+  const [editingLinkId, setEditingLinkId] = useState("");
+  const [linkDraft, setLinkDraft] = useState({ title: "", category: "", subCategory: "", note: "" });
+  const [editingPlaceId, setEditingPlaceId] = useState("");
+  const [adoptDay, setAdoptDay] = useState<"周五晚上" | "周六" | "周日">("周六");
   const [backendBase, setBackendBase] = useState("http://localhost:8787");
   const [draftPlan, setDraftPlan] = useState<FinalPlan | null>(null);
   const [savingPlan, setSavingPlan] = useState(false);
@@ -316,6 +354,10 @@ export default function Home() {
     return () => { window.clearTimeout(initial); window.clearInterval(timer); };
   }, []);
 
+  const canManage = Boolean(state.capabilities?.canManage);
+  const visibleTabs = useMemo(() => canManage ? [...teamTabs, manageTab] : [...teamTabs], [canManage]);
+  const displayTab: TabKey = !canManage && activeTab === "manage" ? "plan" : activeTab;
+
   function rememberNickname(value: string) {
     const next = value.slice(0, 20);
     setNickname(next);
@@ -323,49 +365,62 @@ export default function Home() {
     if (next.trim()) window.localStorage.setItem("travel-team-nickname", next.trim());
   }
 
+  const groupedLinks = useMemo(() => ({
+    processing: state.links.filter((item) => linkBucket(item) === "processing"),
+    needs: state.links.filter((item) => linkBucket(item) === "needs"),
+    complete: state.links.filter((item) => linkBucket(item) === "complete"),
+  }), [state.links]);
+
   const stats = useMemo(() => ({
     links: state.links.length,
-    completed: state.links.filter((item) => item.organizedStatus === "已整理").length,
-    unorganized: state.links.filter((item) => item.organizedStatus === "未整理").length,
-    processing: state.links.filter((item) => item.organizedStatus === "整理中").length,
-    selected: state.places.filter((item) => item.selected).length,
-  }), [state]);
+    completed: groupedLinks.complete.length,
+    unorganized: groupedLinks.needs.length,
+    processing: groupedLinks.processing.length,
+    selected: state.places.filter((item) => candidateKind(item) === "place" && item.selected).length,
+  }), [groupedLinks, state.links.length, state.places]);
 
   const finalPlan = state.finalPlan || EMPTY_STATE.finalPlan;
-  const finalFields = useMemo(() => [
-    finalPlan.title,
-    finalPlan.destination,
-    finalPlan.dates,
-    finalPlan.schedule,
-    finalPlan.people,
-    finalPlan.nights,
-    finalPlan.perPersonBudget,
-    finalPlan.summary,
-    finalPlan.stay.name,
-    finalPlan.stay.address,
-    finalPlan.stay.capacity,
-    finalPlan.stay.roomsBeds,
-    finalPlan.stay.twoNightTotal,
-    finalPlan.stay.checkInOut,
-    finalPlan.stay.barbecue,
-    finalPlan.stay.bbqEquipment,
-    finalPlan.stay.breakfast,
-    finalPlan.stay.sourceUrl,
-  ], [finalPlan]);
-  const finalProgress = useMemo(() => ({
-    confirmed: finalFields.filter((item) => !isPending(item)).length,
-    pending: finalFields.filter(isPending).length,
-  }), [finalFields]);
+  const finalProgress = useMemo(() => {
+    const mealItems = finalPlan.itinerary.filter((item) => /餐|早茶|早餐|午餐|晚餐|烧烤|美食/.test(`${item.category}${item.title}`));
+    const activityItems = finalPlan.itinerary.filter((item) => /密室|活动|游玩|景点|休闲|洗浴|桑拿|汗蒸/.test(`${item.category}${item.title}`));
+    const isResolvedItem = (item: FinalPlan["itinerary"][number]) => !isPending(item.title)
+      && !isPending(item.address)
+      && !isPending(item.time)
+      && /已预订|已确认|已完成|无需预订|无需预约|现场购票/.test(item.bookingStatus);
+    const resolvedMeals = mealItems.filter(isResolvedItem);
+    const resolvedActivities = activityItems.filter(isResolvedItem);
+    const reservationsReady = finalPlan.reservations.length > 0 && finalPlan.reservations.every((item) => /已预订|已完成|已确认/.test(item.status));
+    const groups = [
+      { key: "date", label: "日期", ready: !isPending(finalPlan.dates), note: finalPlan.dates },
+      { key: "stay", label: "住宿", ready: !isPending(finalPlan.stay.name) && !isPending(finalPlan.stay.address) && !isPending(finalPlan.stay.twoNightTotal), note: finalPlan.stay.name },
+      { key: "meal", label: "餐饮", ready: resolvedMeals.length >= 2, note: mealItems.length ? `已落实 ${resolvedMeals.length}/${mealItems.length} 项` : "还没有餐饮安排" },
+      { key: "activity", label: "活动", ready: resolvedActivities.length > 0, note: activityItems.length ? `已落实 ${resolvedActivities.length}/${activityItems.length} 项` : "还没有游玩活动" },
+      { key: "budget", label: "预算", ready: !isPending(finalPlan.perPersonBudget), note: finalPlan.perPersonBudget },
+      { key: "booking", label: "预订", ready: reservationsReady, note: finalPlan.reservations.length ? `${finalPlan.reservations.filter((item) => /已预订|已完成|已确认/.test(item.status)).length}/${finalPlan.reservations.length} 已确认` : "还没有预订清单" },
+    ];
+    return { groups, confirmed: groups.filter((item) => item.ready).length, pending: groups.filter((item) => !item.ready).length };
+  }, [finalPlan]);
   const groupedFinalItinerary = useMemo(() => ["周五晚上", "周六", "周日"].map((day) => ({
     day,
     items: finalPlan.itinerary.filter((item) => item.day === day),
   })), [finalPlan.itinerary]);
 
+  const realPlaces = useMemo(() => state.places.filter((place) => candidateKind(place) === "place"), [state.places]);
+  const focusedRealPlaces = useMemo(() => realPlaces.filter((place) => !sourceFocus || place.sourceId === sourceFocus), [realPlaces, sourceFocus]);
+  const requirements = useMemo(() => state.places.filter((place) => candidateKind(place) === "requirement" && (!sourceFocus || place.sourceId === sourceFocus)), [sourceFocus, state.places]);
+  const guides = useMemo(() => state.places.filter((place) => candidateKind(place) === "guide" && (!sourceFocus || place.sourceId === sourceFocus)), [sourceFocus, state.places]);
+
   const filteredPlaces = useMemo(() => {
-    const ranked = [...state.places]
+    const ranked = [...realPlaces]
+      .filter((place) => !sourceFocus || place.sourceId === sourceFocus)
       .filter((place) => libraryFilter === "全部" || place.category === libraryFilter)
       .filter((place) => subCategoryFilter === "全部子类" || place.subCategory === subCategoryFilter || place.featureTags.includes(subCategoryFilter))
-      .sort((left, right) => candidateRank(right) - candidateRank(left));
+      .sort((left, right) => {
+        if (candidateSort === "votes") return voteSummary(right).support - voteSummary(left).support || candidateRank(right) - candidateRank(left);
+        if (candidateSort === "complete") return (right.completeness || 0) - (left.completeness || 0) || candidateRank(right) - candidateRank(left);
+        if (candidateSort === "price") return (left.price ?? Number.MAX_SAFE_INTEGER) - (right.price ?? Number.MAX_SAFE_INTEGER);
+        return candidateRank(right) - candidateRank(left);
+      });
     if (showAllCandidates) return ranked;
     const visible = ranked.filter((place) => place.decisionStatus !== "淘汰");
     if (libraryFilter !== "全部") return visible.slice(0, 5);
@@ -376,19 +431,20 @@ export default function Home() {
       perCategory.set(place.category, count + 1);
       return true;
     }).slice(0, 10);
-  }, [state.places, libraryFilter, subCategoryFilter, showAllCandidates]);
+  }, [realPlaces, sourceFocus, libraryFilter, subCategoryFilter, showAllCandidates, candidateSort]);
 
   const availableSubCategories = useMemo(() => {
-    const relevant = state.places.filter((place) => libraryFilter === "全部" || place.category === libraryFilter);
+    const relevant = focusedRealPlaces.filter((place) => libraryFilter === "全部" || place.category === libraryFilter);
     return [...new Set(relevant.flatMap((place) => [place.subCategory, ...place.featureTags].filter(Boolean)))].sort((left, right) => left.localeCompare(right, "zh-CN")).slice(0, 18);
-  }, [state.places, libraryFilter]);
+  }, [focusedRealPlaces, libraryFilter]);
 
   const decisionStats = useMemo(() => ({
-    total: state.places.length,
-    shortlist: state.places.filter((place) => place.selected || ["拟定", "备选"].includes(place.decisionStatus || "")).length,
-    complete: state.places.filter((place) => (place.completeness || 0) >= 75).length,
-    rejected: state.places.filter((place) => place.decisionStatus === "淘汰").length,
-  }), [state.places]);
+    total: realPlaces.length,
+    shortlist: realPlaces.filter((place) => place.selected || ["拟定", "备选"].includes(place.decisionStatus || "")).length,
+    complete: realPlaces.filter((place) => (place.completeness || 0) >= 75).length,
+    rejected: realPlaces.filter((place) => place.decisionStatus === "淘汰").length,
+  }), [realPlaces]);
+  const comparedPlaces = useMemo(() => compareIds.map((id) => realPlaces.find((place) => place.id === id)).filter((place): place is Place => Boolean(place)), [compareIds, realPlaces]);
 
   async function submitIdeas(event: FormEvent) {
     event.preventDefault();
@@ -409,9 +465,10 @@ export default function Home() {
       if (submissionMode === "link") setUrls("");
       else setIdeaText("");
       setNote("");
+      const skipped = [result.duplicates ? `${result.duplicates} 条重复` : "", result.invalid ? `${result.invalid} 条无效` : ""].filter(Boolean).join("、");
       setMessage(submissionMode === "text"
-        ? `已接收 ${result.textCreated || result.created} 条文字想法，DeepSeek 正在整理。`
-        : `已接收 ${result.linkCreated || result.created} 个新链接；打不开的链接也会保留。`);
+        ? `已接收 ${result.textCreated || result.created} 条文字想法，DeepSeek 正在整理。${skipped ? `另跳过 ${skipped}。` : ""}`
+        : `已接收 ${result.linkCreated || result.created} 个新链接；读取失败也会留在处理报告中。${skipped ? `另跳过 ${skipped}。` : ""}`);
       await refresh(true);
       setActiveTab("collect");
     } catch (error) {
@@ -420,9 +477,107 @@ export default function Home() {
   }
 
   async function retryLink(id: string) {
-    await fetch(`${apiBase()}/api/links/${id}/retry`, { method: "POST" });
-    setMessage("已重新加入分析队列。");
-    refresh(true);
+    try {
+      const response = await fetch(`${apiBase()}/api/links/${encodeURIComponent(id)}/retry`, { method: "POST" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "重新处理失败");
+      setMessage("已重新加入分析队列。");
+      await refresh(true);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "重新处理失败");
+    }
+  }
+
+  function startLinkEditing(item: LinkRecord) {
+    setEditingLinkId(item.id);
+    setLinkDraft({ title: item.title || "", category: item.category || "", subCategory: item.subCategory || "", note: item.note || "" });
+  }
+
+  async function saveLinkEdit(id: string) {
+    try {
+      const response = await fetch(`${apiBase()}/api/links/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(linkDraft),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "投递记录保存失败");
+      if (result.state) setState(result.state); else await refresh(true);
+      setEditingLinkId("");
+      setMessage("投递记录已修改，并保存到主电脑 Excel。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "投递记录保存失败");
+    }
+  }
+
+  async function deleteLink(id: string) {
+    if (!window.confirm("确认删除这条投递及其全部未采用结果吗？如果其中有已入选、已投票或人工修改的内容，系统会阻止删除。")) return;
+    try {
+      const response = await fetch(`${apiBase()}/api/links/${encodeURIComponent(id)}`, { method: "DELETE" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "删除失败");
+      if (result.state) setState(result.state); else await refresh(true);
+      setEditingLinkId("");
+      setMessage("投递记录已删除。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "删除失败");
+    }
+  }
+
+  function viewSourceCandidates(id: string) {
+    setSourceFocus(id);
+    setLibraryFilter("全部");
+    setSubCategoryFilter("全部子类");
+    setShowAllCandidates(true);
+    setActiveTab("library");
+    window.setTimeout(() => document.getElementById("source-results")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+  }
+
+  function toggleCompare(id: string) {
+    setCompareIds((current) => {
+      const validIds = new Set(realPlaces.map((place) => place.id));
+      const normalized = current.filter((item) => validIds.has(item));
+      if (normalized.includes(id)) return normalized.filter((item) => item !== id);
+      if (normalized.length >= 4) {
+        setMessage("最多同时比较 4 个真实地点，请先移除一个。");
+        return normalized;
+      }
+      return [...normalized, id];
+    });
+  }
+
+  async function savePlaceEdit(id: string, changes: Partial<Place>) {
+    try {
+      const response = await fetch(`${apiBase()}/api/places/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(changes),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "候选保存失败");
+      if (result.state) setState(result.state); else await refresh(true);
+      setEditingPlaceId("");
+      setMessage("候选资料已修改，并保存到主电脑 Excel。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "候选保存失败");
+    }
+  }
+
+  async function adoptPlace(place: Place, day = adoptDay) {
+    const target = place.category === "住宿" ? "stay" : "itinerary";
+    try {
+      const response = await fetch(`${apiBase()}/api/places/${encodeURIComponent(place.id)}/adopt`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target, day }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "采用失败");
+      if (result.state) setState(result.state); else await refresh(true);
+      setMessage(target === "stay" ? `已将“${place.name}”采用为住宿。` : `已将“${place.name}”加入${day}行程，可在最终方案中调整时间。`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "采用失败");
+    }
   }
 
   async function voteForPlace(id: string, choice: VoteChoice) {
@@ -496,7 +651,7 @@ export default function Home() {
     <main>
       <header className="topbar">
         <button className="brand" onClick={() => setActiveTab("plan")} aria-label="返回行程"><span className="brand-seal">{brandSeal}</span><span><strong>{brandName}</strong><small>{finalPlan.people} 人 · {state.project.days} 天共创</small></span></button>
-        <nav aria-label="网站主导航">{tabs.map(([key, label]) => <button key={key} className={activeTab === key ? "nav-active" : ""} onClick={() => setActiveTab(key)}>{label}</button>)}</nav>
+        <nav aria-label="网站主导航">{visibleTabs.map(([key, label]) => <button key={key} className={displayTab === key ? "nav-active" : ""} onClick={() => setActiveTab(key)}>{label}</button>)}</nav>
         <div className={`connection ${connected ? "online" : "offline"}`}><span aria-hidden="true" />{connected ? "已连接并自动同步" : "正在连接"}</div>
       </header>
 
@@ -504,11 +659,11 @@ export default function Home() {
 
       {draftPlan && <PlanEditor plan={draftPlan} saving={savingPlan} onChange={setDraftPlan} onCancel={() => setDraftPlan(null)} onSave={savePlan} />}
 
-      {activeTab === "plan" && <>
+      {displayTab === "plan" && <>
         <section className="simple-hero">
           <div className="shell simple-hero-grid">
             <div className="simple-hero-copy">
-              <div className="sync-line"><span className={connected ? "online" : ""} />{connected ? `已和 Excel 同步 · ${formatTime(state.settings.lastExcelSync)}` : "正在连接本地资料"}</div>
+              <div className="sync-line"><span className={connected ? "online" : ""} />{connected ? `已保存到主电脑 Excel · ${formatTime(state.settings.lastExcelSync)}（不等于已备份 GitHub）` : "正在连接主电脑资料"}</div>
               <p className="eyebrow">团队最终行程</p>
               <h1>{finalPlan.title}</h1>
               <p className="simple-summary">{finalPlan.summary}</p>
@@ -523,7 +678,7 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="decision-strip"><div className="shell"><div><strong>{finalProgress.confirmed}</strong><span>项已确定</span></div><div className="attention"><strong>{finalProgress.pending}</strong><span>项还要确认</span></div><p>最终内容只来自 Excel 第一张「行程首页」，候选资料不会自动进入行程。</p><button className="small-button" onClick={() => setActiveTab("manage")}>去管理</button></div></section>
+        <section className="decision-strip"><div className="shell progress-shell"><div className="progress-heading"><strong>{finalProgress.confirmed}/{finalProgress.groups.length}</strong><span>关键环节已确定</span></div><div className="progress-groups">{finalProgress.groups.map((item) => <div className={item.ready ? "ready" : "pending"} key={item.key}><i /> <span>{item.label}</span><small>{item.note}</small></div>)}</div><p>这里按日期、住宿、餐饮、活动、预算和预订的真实完成情况计算，不再按文字字段凑数。</p>{canManage ? <button className="small-button" onClick={() => setActiveTab("manage")}>主电脑管理</button> : <button className="small-button" onClick={() => setActiveTab("collect")}>继续补充</button>}</div></section>
 
         <section className="shell essentials-section">
           <div className="simple-section-title"><div><p className="eyebrow">先看重点</p><h2>住宿与待确认事项</h2></div><span>橙色内容表示还没有最终确定</span></div>
@@ -536,17 +691,17 @@ export default function Home() {
             <article className="pending-card">
               <header><span>下一步</span><h3>优先确认这几项</h3></header>
               {[{ label: "出行日期", value: finalPlan.dates }, { label: "人均预算", value: finalPlan.perPersonBudget }, { label: "民宿", value: finalPlan.stay.name }, { label: "烧烤条件", value: finalPlan.stay.barbecue }].map((item) => <div key={item.label}><StatusPill value={item.value} /><span>{item.label}</span><strong>{String(item.value)}</strong></div>)}
-              <button className="text-button" onClick={() => setActiveTab("manage")}>在 Excel 或网页中修改 →</button>
+              {canManage ? <button className="text-button" onClick={() => setActiveTab("manage")}>在主电脑 Excel 或网页中修改 →</button> : <button className="text-button" onClick={() => setActiveTab("collect")}>投递你知道的信息 →</button>}
             </article>
           </div>
         </section>
 
-        <section className="final-itinerary-section simple-itinerary-section"><div className="shell"><div className="simple-section-title"><div><p className="eyebrow">两天怎么玩</p><h2>周五晚到周日</h2></div><span>修改 Excel 后，这里会自动刷新</span></div><div className="final-day-grid">{groupedFinalItinerary.map(({ day, items }) => <FinalDay key={day} day={day} items={items} />)}</div></div></section>
+        <section className="final-itinerary-section simple-itinerary-section"><div className="shell"><div className="simple-section-title"><div><p className="eyebrow">两天怎么玩</p><h2>周五晚到周日</h2></div><span>主电脑修改 Excel 后，这里会自动刷新</span></div><div className="final-day-grid">{groupedFinalItinerary.map(({ day, items }) => <FinalDay key={day} day={day} items={items} destination={destination} />)}</div></div></section>
 
         <section className="shell final-reservation-section simple-reservation-section"><div className="simple-section-title"><div><p className="eyebrow">出发前清单</p><h2>谁来确认、什么时候完成</h2></div><span>网站只记录进度，不会自动下单</span></div><div className="reservation-list">{finalPlan.reservations.length ? finalPlan.reservations.map((item) => <article key={item.id}><span className="reservation-type">{item.type}</span><div><h3>{item.item}</h3><p>{item.targetTime} · {item.note}</p></div><div className="reservation-owner"><small>{item.owner}</small><span>截至 {item.deadline}</span></div><b className={`status-badge ${statusTone(item.status)}`}><i />{item.status}</b></article>) : <div className="empty-state">还没有预订事项，请在 Excel 首页底部添加。</div>}</div></section>
       </>}
 
-      {activeTab === "collect" && <section className="shell workspace-page">
+      {displayTab === "collect" && <section className="shell workspace-page">
         <div className="page-title"><p className="eyebrow">投递灵感</p><h1>有链接就粘贴，没有链接就直接说想法。</h1><p>DeepSeek 会把“想住能烧烤的六人民宿”“想玩中恐密室”这类文字，和网页链接一样整理成分类、条件、缺失项与候选资料，再写进 Excel。</p></div>
         <div className="report-summary"><div><span>全部投递</span><strong>{stats.links}</strong></div><div className="good"><span>已成功整理</span><strong>{stats.completed}</strong></div><div className="warn"><span>未整理</span><strong>{stats.unorganized}</strong></div><div><span>处理中</span><strong>{stats.processing}</strong></div></div>
         <div className="collect-layout">
@@ -561,47 +716,80 @@ export default function Home() {
           </form>
           <aside className="pipeline-card"><span className="paper-tag">提交后会发生什么</span><h3>原话保留，条件拆开</h3>{["链接或原始文字先进入投递台账", "DeepSeek 识别分类、预算和关键偏好", "结构化结果进入候选表，等待团队筛选"].map((item, index) => <div className="pipeline-step" key={item}><b>{String(index + 1).padStart(2, "0")}</b><span>{item}</span></div>)}<p className="pipeline-note">Excel 同时保留原始诉求与 AI 整理结果，方便以后核对和继续补充。</p></aside>
         </div>
-        <div className="task-panel"><div className="panel-heading"><div><h2>投递处理报告</h2><p>链接和文字都会显示处理进度；完整记录也会写入 Excel。</p></div><button className="small-button" onClick={() => refresh()}>刷新状态</button></div><div className="task-list">
+        <div className="task-panel"><div className="panel-heading"><div><h2>投递处理中心</h2><p>一眼区分“正在处理、需要补充、已经完成”，并能看到每条投递生成了多少个结果。</p></div><button className="small-button" onClick={() => refresh()}>刷新状态</button></div><div className="task-groups">
           {state.links.length === 0 && <div className="empty-state">还没有团队投递。粘贴链接或写下第一个想法后，处理过程会显示在这里。</div>}
-          {state.links.map((item) => <article className="task-report" key={item.id}>
-            <div className="task-report-main"><span className="source-icon">{item.sourceType === "文字" ? "文" : "链"}</span><div><div className="task-title-line"><strong>{item.title || (item.sourceType === "文字" ? "团队文字需求" : sourceName(item.url))}</strong><span>{item.category}{item.subCategory ? ` · ${item.subCategory}` : ""}</span></div>{item.url ? <a href={item.url} target="_blank" rel="noreferrer">{item.url}</a> : <p className="task-source-text">“{item.inputText}”</p>}<p>{item.resultNote}</p></div></div>
-            <div className="task-statuses"><span className={`status-badge ${statusTone(item.readStatus)}`}><i />{item.readStatus}</span><span className={`status-badge ${statusTone(item.organizedStatus)}`}><i />{item.organizedStatus}</span><small>{formatTime(item.updatedAt)}</small></div>
-            <details className="task-details"><summary>查看整理详情</summary><div className="fact-columns"><div><b>已提取</b><p>{item.factsFound.length ? item.factsFound.join(" · ") : "暂无"}</p></div><div><b>还缺少</b><p>{item.missingFields.length ? item.missingFields.join(" · ") : "无明显缺失"}</p></div></div></details>
-            <div className="task-report-foot"><span>{item.submitter} · {item.sourceType || "链接"} · {item.model || "等待分配模型"}</span>{(item.organizedStatus === "未整理" || item.status === "处理失败") && <button className="small-button" onClick={() => retryLink(item.id)}>重新尝试</button>}</div>
-          </article>)}
+          {([[
+            "processing", "正在处理", "DeepSeek 正在读取或整理，请稍后刷新"
+          ], ["needs", "需要补充", "链接受限、字段不足或处理失败，需要人工协助"], ["complete", "已经完成", "已拆成团队诉求、攻略资料或真实地点"]] as const).map(([groupKey, groupTitle, groupDescription]) => {
+            const records = groupedLinks[groupKey];
+            return <section className={`task-group task-group-${groupKey}`} key={groupKey}>
+              <header><div><h3>{groupTitle}</h3><p>{groupDescription}</p></div><b>{records.length}</b></header>
+              <div className="task-list">{records.length ? records.map((item) => {
+                const candidateCount = item.candidateCount ?? state.places.filter((place) => place.sourceId === item.id).length;
+                return <article className="task-report" key={item.id}>
+                  <div className="task-report-main"><span className="source-icon">{item.sourceType === "文字" ? "文" : "链"}</span><div><div className="task-title-line"><strong>{item.title || (item.sourceType === "文字" ? "团队文字需求" : sourceName(item.url))}</strong><span>{item.category}{item.subCategory ? ` · ${item.subCategory}` : ""}</span></div>{item.url ? <a href={item.url} target="_blank" rel="noreferrer">{item.url}</a> : <p className="task-source-text">“{item.inputText}”</p>}<p>{item.resultNote}</p></div></div>
+                  <div className="task-statuses"><span className={`status-badge ${statusTone(item.readStatus)}`}><i />{item.readStatus}</span><span className={`status-badge ${statusTone(item.organizedStatus)}`}><i />{item.organizedStatus}</span><span className="candidate-count-badge">生成 {candidateCount} 个整理结果</span><small>{formatTime(item.updatedAt)}</small></div>
+                  <details className="task-details"><summary>查看提取与缺失信息</summary><div className="fact-columns"><div><b>已提取</b><p>{item.factsFound.length ? item.factsFound.join(" · ") : "暂无"}</p></div><div><b>还缺少</b><p>{item.missingFields.length ? item.missingFields.join(" · ") : "无明显缺失"}</p></div></div></details>
+                  {editingLinkId === item.id && <div className="inline-editor link-inline-editor"><label>标题<input value={linkDraft.title} onChange={(event) => setLinkDraft({ ...linkDraft, title: event.target.value })} /></label><label>大类<input value={linkDraft.category} onChange={(event) => setLinkDraft({ ...linkDraft, category: event.target.value })} /></label><label>子类<input value={linkDraft.subCategory} onChange={(event) => setLinkDraft({ ...linkDraft, subCategory: event.target.value })} /></label><label className="wide">管理员备注<textarea value={linkDraft.note} onChange={(event) => setLinkDraft({ ...linkDraft, note: event.target.value })} /></label><div className="inline-editor-actions"><button type="button" className="small-button" onClick={() => setEditingLinkId("")}>取消</button><button type="button" className="primary" onClick={() => saveLinkEdit(item.id)}>保存修改</button></div></div>}
+                  <div className="task-report-foot"><span>{item.submitter} · {item.sourceType || "链接"} · {item.model || "等待分配模型"}</span><div className="task-actions">{candidateCount > 0 && <button className="small-button" onClick={() => viewSourceCandidates(item.id)}>查看 {candidateCount} 个结果</button>}{canManage && groupKey === "needs" && <button className="small-button" onClick={() => retryLink(item.id)}>重新尝试</button>}{canManage && groupKey === "complete" && <button className="small-button" onClick={() => window.confirm("重新分析会再次读取原始内容。投票、入选和人工修改会优先保留，继续吗？") && retryLink(item.id)}>重新分析</button>}{canManage && groupKey !== "processing" && <><button className="small-button" onClick={() => startLinkEditing(item)}>修改</button><button className="danger-button" onClick={() => deleteLink(item.id)}>删除</button></>}</div></div>
+                </article>;
+              }) : <div className="task-group-empty">当前没有内容</div>}</div>
+            </section>;
+          })}
         </div></div>
       </section>}
 
-      {activeTab === "library" && <section className="shell workspace-page">
-        <div className="page-title split"><div><p className="eyebrow">重点候选</p><h1>先选大类，再按子类快速缩小范围。</h1><p>可以直接筛选烧烤、火锅、微恐、中恐、汗蒸、桑拿等标签；完整字段和人工修改记录都保留在 Excel。</p></div><div className="library-count"><strong>{filteredPlaces.length}</strong><span>当前展示 / 共 {state.places.length} 个</span></div></div>
-        <div className="nickname-bar"><div><strong>我的昵称</strong><span>不用注册，只用于区分是谁做的选择</span></div><input value={nickname} onChange={(event) => rememberNickname(event.target.value)} placeholder="例如：小王" maxLength={20} /></div>
-        <div className="candidate-notice candidate-mode"><div><strong>{showAllCandidates ? "正在查看全部候选" : "智能收起已开启"}</strong><span>{showAllCandidates ? "包括待比较和已淘汰项目，完整数据仍以 Excel 为准。" : "每类最多显示 3 个重点项目；已淘汰候选默认隐藏。"}</span></div><button className="small-button" onClick={() => setShowAllCandidates((value) => !value)}>{showAllCandidates ? "收起，只看重点" : `查看全部 ${state.places.length} 个`}</button></div>
-        <div className="filter-stack"><div className="filter-label"><strong>大类</strong><span>先选住宿、餐饮或游玩方向</span></div><div className="filter-bar">{mainFilters.map((item) => <button key={item} className={libraryFilter === item ? "selected" : ""} onClick={() => { setLibraryFilter(item); setSubCategoryFilter("全部子类"); setShowAllCandidates(false); }}>{item}</button>)}</div>{availableSubCategories.length > 0 && <><div className="filter-label secondary"><strong>子类 / 标签</strong><span>一个候选可以同时拥有多个标签</span></div><div className="filter-bar sub-filter"><button className={subCategoryFilter === "全部子类" ? "selected" : ""} onClick={() => setSubCategoryFilter("全部子类")}>全部子类</button>{availableSubCategories.map((item) => <button key={item} className={subCategoryFilter === item ? "selected" : ""} onClick={() => setSubCategoryFilter(item)}>{item}</button>)}</div></>}</div>
+      {displayTab === "library" && <section id="source-results" className="shell workspace-page">
+        <div className="page-title split"><div><p className="eyebrow">候选与需求</p><h1>先分清“想要什么”，再比较“具体去哪”。</h1><p>团队诉求、攻略资料和真实地点分别展示。只有有明确商户或地点的真实候选才能投票和加入行程。</p></div><div className="library-count"><strong>{focusedRealPlaces.length}</strong><span>真实地点 · {requirements.length} 条诉求 · {guides.length} 份攻略</span></div></div>
+
+        <div className="candidate-type-summary"><div className="type-place"><b>真实地点</b><strong>{focusedRealPlaces.length}</strong><span>可比较、投票和加入行程</span></div><div className="type-requirement"><b>团队诉求</b><strong>{requirements.length}</strong><span>可标记采纳，用来约束筛选</span></div><div className="type-guide"><b>攻略资料</b><strong>{guides.length}</strong><span>作为线索，继续拆成具体地点</span></div></div>
+
+        {sourceFocus && <div className="source-focus-banner"><div><strong>正在查看同一条投递生成的结果</strong><span>下面只显示这条来源拆出的团队诉求、攻略资料和真实地点。</span></div><button className="small-button" onClick={() => setSourceFocus("")}>清除来源筛选</button></div>}
+
+        {(requirements.length > 0 || guides.length > 0) && <div className="reference-sections">
+          {requirements.length > 0 && <details className="reference-group requirement-group" open><summary><span>团队诉求</span><b>{requirements.length}</b><small>这些是“想要什么”，不能投票当作真实商户</small></summary><div className="reference-grid">{requirements.map((place) => <ReferenceCard key={place.id} place={place} canManage={canManage} editing={editingPlaceId === place.id} onEdit={() => setEditingPlaceId(place.id)} onCancel={() => setEditingPlaceId("")} onSave={savePlaceEdit} />)}</div></details>}
+          {guides.length > 0 && <details className="reference-group guide-group" open><summary><span>攻略资料</span><b>{guides.length}</b><small>这是来源线索，不等于已经核实过的店或地点</small></summary><div className="reference-grid">{guides.map((place) => <ReferenceCard key={place.id} place={place} canManage={canManage} editing={editingPlaceId === place.id} onEdit={() => setEditingPlaceId(place.id)} onCancel={() => setEditingPlaceId("")} onSave={savePlaceEdit} />)}</div></details>}
+        </div>}
+
+        <div id="library-results" className="real-candidate-heading"><div><p className="eyebrow">真实地点</p><h2>比较具体民宿、餐厅和活动</h2></div><div className="nickname-inline"><label htmlFor="voter-name">我的昵称</label><input id="voter-name" value={nickname} onChange={(event) => rememberNickname(event.target.value)} placeholder="例如：小王" maxLength={20} /></div></div>
+
+        <div className="candidate-notice candidate-mode"><div><strong>{showAllCandidates ? "正在查看全部真实候选" : "智能收起已开启"}</strong><span>{showAllCandidates ? "包括待比较和已淘汰地点。每张卡片都会明确显示核实状态。" : "每类最多显示 3 个重点地点；已淘汰内容默认隐藏。"}</span></div><button className="small-button" onClick={() => setShowAllCandidates((value) => !value)}>{showAllCandidates ? "收起，只看重点" : `查看全部 ${focusedRealPlaces.length} 个地点`}</button></div>
+
+        <div className="filter-stack"><div className="candidate-toolbar"><div><div className="filter-label"><strong>大类</strong><span>先选住宿、餐饮或游玩方向</span></div><div className="filter-bar">{mainFilters.map((item) => <button key={item} className={libraryFilter === item ? "selected" : ""} onClick={() => { setLibraryFilter(item); setSubCategoryFilter("全部子类"); setShowAllCandidates(false); }}>{item}</button>)}</div></div><label className="sort-control">排序方式<select value={candidateSort} onChange={(event) => setCandidateSort(event.target.value as typeof candidateSort)}><option value="recommended">综合推荐</option><option value="votes">想去人数</option><option value="complete">资料完整度</option><option value="price">价格从低到高</option></select></label></div>{availableSubCategories.length > 0 && <><div className="filter-label secondary"><strong>子类 / 标签</strong><span>一个候选可以同时拥有多个标签</span></div><div className="filter-bar sub-filter"><button className={subCategoryFilter === "全部子类" ? "selected" : ""} onClick={() => setSubCategoryFilter("全部子类")}>全部子类</button>{availableSubCategories.map((item) => <button key={item} className={subCategoryFilter === item ? "selected" : ""} onClick={() => setSubCategoryFilter(item)}>{item}</button>)}</div></>}</div>
+
+        {comparedPlaces.length > 0 && <ComparisonTable places={comparedPlaces} onRemove={(id) => toggleCompare(id)} />}
+
         <div className="place-grid simple-place-grid">{filteredPlaces.map((place) => {
           const votes = voteSummary(place);
           const myVote = place.votes?.[nickname.trim()];
           const details = importantDetails(place, finalPlan.people).slice(0, 4);
-          return <article className={`place-card simple-place-card ${place.selected ? "chosen-card" : ""}`} key={place.id}>
+          const isCompared = comparedPlaces.some((item) => item.id === place.id);
+          return <article className={`place-card simple-place-card ${place.selected ? "chosen-card" : ""} ${isCompared ? "compare-selected" : ""}`} key={place.id}>
+          <div className="candidate-identity"><span className="candidate-type type-place">真实地点</span><span className={`verification-state ${statusTone(place.verificationStatus)}`}><i />{place.verificationStatus || "待核实"}</span></div>
           <div className="place-top"><span className="place-category">{place.category} · {place.subCategory}</span><span className={place.selected ? "selected-mark" : `candidate-mark decision-${place.decisionStatus || "待比较"}`}>{place.selected ? "已入选" : place.decisionStatus || "待比较"}</span></div>
           <h3>{place.name}</h3><p className="place-meta">{place.area} · {place.category === "住宿" && !isPending(place.details.twoNightTotal) ? place.details.twoNightTotal : place.priceLabel}</p>
+          <button className={`compare-toggle ${isCompared ? "selected" : ""}`} onClick={() => toggleCompare(place.id)}>{isCompared ? "✓ 已加入比较" : `＋ 加入比较（${comparedPlaces.length}/4）`}</button>
           <div className="candidate-metrics"><div><span>资料完整度</span><strong>{place.completeness || 0}%</strong></div><div><span>AI 推荐</span><strong>{place.score.toFixed(1)}</strong></div><div><span>还缺</span><strong>{place.keyMissing?.length || 0} 项</strong></div></div>
           <div className="candidate-highlight"><div><span>为什么值得看</span><strong>{place.pros[0] || "等待分析"}</strong></div><div><span>还要核实</span><strong>{place.cons[0] || "等待核实"}</strong></div></div>
           <div className="detail-grid compact-details">{details.map(([label, detail]) => <div key={label}><span>{label}</span><strong>{detail}</strong></div>)}</div>
           <div className="vote-panel"><div className="vote-summary"><strong>{votes.support}</strong><span>人想去</span><small>{votes.okay} 人可以 · {votes.reject} 人不考虑</small></div><div className="vote-buttons">{voteChoices.map((choice) => <button key={choice} className={myVote === choice ? "selected" : ""} onClick={() => voteForPlace(place.id, choice)}>{choice}</button>)}</div></div>
-          <details className="candidate-details"><summary>查看更多资料</summary><div className="place-tags">{[...new Set([place.subCategory, ...place.featureTags, ...place.tags])].map((tag) => <span key={tag}>{tag}</span>)}</div>{place.keyMissing?.length ? <p className="candidate-missing"><b>缺失项：</b>{place.keyMissing.join(" · ")}</p> : null}{place.manualNote ? <p className="candidate-manual-note"><b>人工备注：</b>{place.manualNote}</p> : null}{Object.keys(place.manualOverrides || {}).length ? <p className="candidate-manual-note"><b>人工保护：</b>{Object.keys(place.manualOverrides || {}).length} 个字段不会被重新分析覆盖</p> : null}<div className="place-footer"><div><span>参考预算</span><strong>{place.priceLabel}</strong></div><div className="score"><span>推荐度</span><strong>{place.score.toFixed(1)}</strong></div></div><p className="data-state">数据状态：{place.dataStatus}</p></details>
+          <details className="candidate-details"><summary>查看更多资料</summary><div className="place-tags">{[...new Set([place.subCategory, ...place.featureTags, ...place.tags])].map((tag) => <span key={tag}>{tag}</span>)}</div>{place.keyMissing?.length ? <p className="candidate-missing"><b>缺失项：</b>{place.keyMissing.join(" · ")}</p> : null}{place.manualNote ? <p className="candidate-manual-note"><b>人工备注：</b>{place.manualNote}</p> : null}{Object.keys(place.manualOverrides || {}).length ? <p className="candidate-manual-note"><b>人工保护：</b>{Object.keys(place.manualOverrides || {}).length} 个字段不会被重新分析覆盖</p> : null}<div className="place-footer"><div><span>参考预算</span><strong>{place.priceLabel}</strong></div><div className="score"><span>推荐度</span><strong>{place.score.toFixed(1)}</strong></div></div></details>
+          {editingPlaceId === place.id && <CandidateEditor place={place} onCancel={() => setEditingPlaceId("")} onSave={savePlaceEdit} />}
+          {canManage && editingPlaceId !== place.id && <div className="manager-card-actions"><button className="small-button" onClick={() => setEditingPlaceId(place.id)}>修改候选</button>{place.category !== "住宿" && <select aria-label="选择加入哪天行程" value={adoptDay} onChange={(event) => setAdoptDay(event.target.value as typeof adoptDay)}><option>周五晚上</option><option>周六</option><option>周日</option></select>}<button className="primary" onClick={() => adoptPlace(place)}>{place.category === "住宿" ? "采用为住宿" : `加入${adoptDay}行程`}</button></div>}
           <div className="card-link-row">{place.details.address && !isPending(place.details.address) && <a href={mapSearchUrl(place.details.address, destination)} target="_blank" rel="noreferrer">地图</a>}{place.sourceUrl && <a href={place.sourceUrl} target="_blank" rel="noreferrer">原始链接</a>}</div>
         </article>})}</div>
-        {!filteredPlaces.length && <div className="empty-state">当前筛选下没有重点候选，可以查看全部或继续投递链接与想法。</div>}
+        {!filteredPlaces.length && <div className="empty-state">当前筛选下没有真实地点。团队诉求和攻略资料不会混进这里。</div>}
       </section>}
 
-      {activeTab === "manage" && <section className="shell workspace-page manage-page">
-        <div className="page-title"><p className="eyebrow">Excel 管理</p><h1>你在 Excel 里分类、比较和定稿。</h1><p>先在「候选决策台」看全局，再到美食、密室、休闲或住宿分表补充黄色字段，最后把确定结果写进「行程首页」。</p></div>
-        <div className="decision-overview"><div><span>全部候选</span><strong>{decisionStats.total}</strong></div><div><span>拟定 / 备选</span><strong>{decisionStats.shortlist}</strong></div><div><span>资料完整 ≥ 75%</span><strong>{decisionStats.complete}</strong></div><div><span>已淘汰</span><strong>{decisionStats.rejected}</strong></div></div>
-        <div className="excel-hero"><div className="excel-file-icon">X</div><div className="excel-file-info"><span>主操作文件</span><h2>{workbookName}</h2><p>打开后先看第二张「候选决策台」 · 最近同步：{formatTime(state.settings.lastExcelSync)}</p></div><div className="excel-actions"><a className="primary" href={`${backendBase}/api/download/excel`}>打开 Excel 决策台</a><button className="small-button" onClick={syncExcel}>立即读取修改</button></div></div>
+      {displayTab === "manage" && canManage && <section className="shell workspace-page manage-page">
+        <div className="page-title"><p className="eyebrow">主电脑管理</p><h1>在主电脑完成分类、比较和定稿。</h1><p>这个页面只在主电脑开放。先在「候选决策台」看全局，再到分类分表补充黄色字段，最后把确定结果写进「行程首页」。</p></div>
+        <div className="decision-overview"><div><span>真实地点</span><strong>{decisionStats.total}</strong></div><div><span>拟定 / 备选</span><strong>{decisionStats.shortlist}</strong></div><div><span>资料完整 ≥ 75%</span><strong>{decisionStats.complete}</strong></div><div><span>已淘汰</span><strong>{decisionStats.rejected}</strong></div></div>
+        <div className="excel-hero"><div className="excel-file-icon">X</div><div className="excel-file-info"><span>主电脑原文件</span><h2>{workbookName}</h2><p>最近保存：{formatTime(state.settings.lastExcelSync)} · 已保存到 Excel 不等于已备份到 GitHub</p></div><div className="excel-actions"><a className="primary" href={`${backendBase}/api/download/excel`}>下载 Excel 副本</a><button className="small-button" onClick={syncExcel}>读取主电脑原文件</button></div></div>
+        <div className="excel-copy-warning"><strong>请注意：下载得到的是副本</strong><p>朋友下载后自行修改的文件不会自动传回。只有这台主电脑上的原始 Excel 会被网站自动读取和同步；GitHub 备份仍需单独执行。</p></div>
 
         <div className="manage-choice-grid">
           <article className="recommended-choice"><span>推荐流程</span><h2>先收集想法，再补全，最后定行程</h2><p>链接和文字都会进入分类表；黄色单元格是你可以人工确认和修正的内容。</p><ol><li>在「候选决策台」按大类和子分类筛选</li><li>查看团队原始诉求，再补充真实商户信息</li><li>黄色列改过的内容会被人工保护</li><li>最后把确定内容写进「行程首页」</li></ol></article>
-          <article><span>备用</span><h2>在网页中快速修改</h2><p>适合临时改一个时间、负责人或民宿信息，保存后同样会写回 Excel。</p><button className="small-button" onClick={startPlanEditing}>打开网页编辑器</button></article>
+          <article><span>快捷编辑</span><h2>在网页中分段修改</h2><p>适合临时改时间、负责人或民宿信息。编辑器会提示未保存内容，保存后写回主电脑 Excel。</p><button className="small-button" onClick={startPlanEditing}>打开网页编辑器</button></article>
         </div>
 
         <div className="simple-section-title manage-sheet-title"><div><p className="eyebrow">四组工作表</p><h2>全局决策、分类细节、最终行程和处理记录</h2></div></div>
@@ -616,6 +804,75 @@ export default function Home() {
   );
 }
 
+function ReferenceCard({ place, canManage, editing, onEdit, onCancel, onSave }: {
+  place: Place;
+  canManage: boolean;
+  editing: boolean;
+  onEdit: () => void;
+  onCancel: () => void;
+  onSave: (id: string, changes: Partial<Place>) => void;
+}) {
+  const kind = candidateKind(place);
+  return <article className={`reference-card type-${kind}`}>
+    <div className="candidate-identity"><span className={`candidate-type type-${kind}`}>{candidateKindLabel(place)}</span><span className={`verification-state ${statusTone(place.verificationStatus)}`}><i />{place.verificationStatus || (kind === "requirement" ? "团队诉求" : "待核实")}</span></div>
+    <span className="place-category">{place.category}{place.subCategory ? ` · ${place.subCategory}` : ""}</span>
+    {place.selected && <span className="selected-mark">{kind === "requirement" ? "已采纳需求" : "已采纳线索"}</span>}
+    <h3>{place.name}</h3>
+    <p>{place.manualNote || place.summary || place.pros[0] || (kind === "requirement" ? "这是一条团队偏好，用来筛选真实地点。" : "这是一份攻略线索，需要继续拆解和核实具体地点。")}</p>
+    <div className="place-tags">{[...new Set([place.subCategory, ...place.featureTags, ...place.tags].filter(Boolean))].slice(0, 8).map((tag) => <span key={tag}>{tag}</span>)}</div>
+    {place.keyMissing?.length ? <p className="candidate-missing"><b>还需补充：</b>{place.keyMissing.join(" · ")}</p> : null}
+    {editing && <CandidateEditor place={place} onCancel={onCancel} onSave={onSave} />}
+    <div className="reference-actions">{place.sourceUrl && <a href={place.sourceUrl} target="_blank" rel="noreferrer">查看原始来源</a>}{canManage && !editing && <button className="small-button" onClick={onEdit}>修改整理结果</button>}</div>
+  </article>;
+}
+
+function CandidateEditor({ place, onCancel, onSave }: {
+  place: Place;
+  onCancel: () => void;
+  onSave: (id: string, changes: Partial<Place>) => void;
+}) {
+  const [draft, setDraft] = useState({
+    name: place.name,
+    category: place.category,
+    subCategory: place.subCategory,
+    area: place.area,
+    priceLabel: place.priceLabel,
+    address: place.details.address,
+    decisionStatus: place.decisionStatus || "待比较",
+    dataStatus: place.dataStatus,
+    verificationStatus: place.verificationStatus || (candidateKind(place) === "requirement" ? "团队诉求" : "待核实"),
+    manualNote: place.manualNote || "",
+  });
+  return <div className="inline-editor candidate-inline-editor">
+    <label className="wide">名称<input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
+    <label>大类<input value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })} /></label>
+    <label>子类<input value={draft.subCategory} onChange={(event) => setDraft({ ...draft, subCategory: event.target.value })} /></label>
+    <label>区域<input value={draft.area} onChange={(event) => setDraft({ ...draft, area: event.target.value })} /></label>
+    <label>参考价格<input value={draft.priceLabel} onChange={(event) => setDraft({ ...draft, priceLabel: event.target.value })} /></label>
+    <label className="wide">详细地址<input value={draft.address} onChange={(event) => setDraft({ ...draft, address: event.target.value })} /></label>
+    <label>决策状态<select value={draft.decisionStatus} onChange={(event) => setDraft({ ...draft, decisionStatus: event.target.value as NonNullable<Place["decisionStatus"]> })}><option>待比较</option><option>备选</option><option>拟定</option><option>淘汰</option></select></label>
+    <label>核实状态<select value={draft.verificationStatus} disabled={candidateKind(place) === "requirement"} onChange={(event) => setDraft({ ...draft, verificationStatus: event.target.value })}>{candidateKind(place) === "requirement" && <option>团队诉求</option>}<option>待核实</option><option>部分核实</option><option>已核实</option></select></label>
+    <label className="wide">数据来源说明<input value={draft.dataStatus} onChange={(event) => setDraft({ ...draft, dataStatus: event.target.value })} /></label>
+    <label className="wide">人工备注<textarea value={draft.manualNote} onChange={(event) => setDraft({ ...draft, manualNote: event.target.value })} /></label>
+    <div className="inline-editor-actions"><button type="button" className="small-button" onClick={onCancel}>取消</button><button type="button" className="primary" onClick={() => onSave(place.id, { name: draft.name, category: draft.category, subCategory: draft.subCategory, area: draft.area, priceLabel: draft.priceLabel, decisionStatus: draft.decisionStatus, dataStatus: draft.dataStatus, verificationStatus: draft.verificationStatus, manualNote: draft.manualNote, details: { ...place.details, address: draft.address } })}>保存候选</button></div>
+  </div>;
+}
+
+function ComparisonTable({ places, onRemove }: { places: Place[]; onRemove: (id: string) => void }) {
+  const rows: Array<[string, (place: Place) => string]> = [
+    ["类别", (place) => `${place.category} · ${place.subCategory}`],
+    ["区域", (place) => place.area || "待补充"],
+    ["价格", (place) => place.category === "住宿" && !isPending(place.details.twoNightTotal) ? place.details.twoNightTotal : place.priceLabel],
+    ["位置", (place) => place.details.address || "待补充"],
+    ["想去人数", (place) => `${voteSummary(place).support} 人`],
+    ["资料完整", (place) => `${place.completeness || 0}%`],
+    ["推荐理由", (place) => place.pros[0] || "等待分析"],
+    ["注意事项", (place) => place.cons[0] || "等待核实"],
+    ["核实状态", (place) => place.verificationStatus || "待核实"],
+  ];
+  return <section className="comparison-panel"><header><div><span>并排比较</span><h2>已选择 {places.length}/4 个真实地点</h2></div><small>左右滑动查看全部列</small></header><div className="comparison-scroll"><table><thead><tr><th>比较项目</th>{places.map((place) => <th key={place.id}><strong>{place.name}</strong><button onClick={() => onRemove(place.id)} aria-label={`移除 ${place.name}`}>移除</button></th>)}</tr></thead><tbody>{rows.map(([label, value]) => <tr key={label}><th>{label}</th>{places.map((place) => <td key={place.id}>{value(place)}</td>)}</tr>)}</tbody></table></div></section>;
+}
+
 function PlanEditor({ plan, saving, onChange, onCancel, onSave }: {
   plan: FinalPlan;
   saving: boolean;
@@ -623,6 +880,31 @@ function PlanEditor({ plan, saving, onChange, onCancel, onSave }: {
   onCancel: () => void;
   onSave: () => void;
 }) {
+  const [activeSection, setActiveSection] = useState<"basic" | "stay" | "itinerary" | "reservations">("basic");
+  const [initialSnapshot] = useState(() => JSON.stringify(plan));
+  const dirty = JSON.stringify(plan) !== initialSnapshot;
+
+  useEffect(() => {
+    function warnBeforeLeaving(event: BeforeUnloadEvent) {
+      if (!dirty) return;
+      event.preventDefault();
+      event.returnValue = "";
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") requestCancel();
+    }
+    window.addEventListener("beforeunload", warnBeforeLeaving);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("beforeunload", warnBeforeLeaving);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  });
+
+  function requestCancel() {
+    if (!dirty || window.confirm("还有未保存的修改，确定放弃并关闭吗？")) onCancel();
+  }
+
   function updatePlan(field: keyof FinalPlan, value: string | number) {
     onChange({ ...plan, [field]: value } as FinalPlan);
   }
@@ -658,12 +940,14 @@ function PlanEditor({ plan, saving, onChange, onCancel, onSave }: {
   return <div className="plan-editor-overlay" role="dialog" aria-modal="true" aria-labelledby="plan-editor-title">
     <form className="plan-editor" onSubmit={(event) => { event.preventDefault(); onSave(); }}>
       <header className="plan-editor-header">
-        <div><p className="eyebrow">WEB EDITOR · EXCEL SYNC</p><h1 id="plan-editor-title">编辑最终方案</h1><span>保存后会立即更新网站，并写入本地 Excel 第一张表「行程首页」。</span></div>
-        <div className="plan-editor-actions"><button type="button" className="small-button" onClick={onCancel} disabled={saving}>取消</button><button type="submit" className="primary" disabled={saving}>{saving ? "正在同步……" : "保存并同步 Excel"}</button></div>
+        <div><p className="eyebrow">WEB EDITOR · EXCEL SYNC</p><h1 id="plan-editor-title">分段编辑最终方案</h1><span>{dirty ? "● 有未保存修改" : "尚未修改"} · 保存后写入主电脑 Excel「行程首页」。</span></div>
+        <div className="plan-editor-actions"><button type="button" className="small-button" onClick={requestCancel} disabled={saving}>关闭</button><button type="submit" className="primary" disabled={saving || !dirty}>{saving ? "正在同步……" : dirty ? "保存到主电脑 Excel" : "没有新修改"}</button></div>
       </header>
 
+      <nav className="editor-tabs" aria-label="编辑内容分段">{([ ["basic", "基础信息"], ["stay", "住宿"], ["itinerary", `行程 ${plan.itinerary.length}`], ["reservations", `待办 ${plan.reservations.length}`] ] as const).map(([key, label], index) => <button type="button" className={activeSection === key ? "selected" : ""} onClick={() => setActiveSection(key)} key={key}><b>{String(index + 1).padStart(2, "0")}</b><span>{label}</span></button>)}</nav>
+
       <div className="plan-editor-body">
-        <section className="editor-section">
+        {activeSection === "basic" && <section className="editor-section">
           <div className="editor-section-title"><b>01</b><div><h2>基础信息</h2><p>控制网站标题、日期、人数和顶部介绍。</p></div></div>
           <div className="editor-grid basic-grid">
             <EditorField label="方案标题" value={plan.title} onChange={(value) => updatePlan("title", value)} wide />
@@ -675,9 +959,9 @@ function PlanEditor({ plan, saving, onChange, onCancel, onSave }: {
             <EditorField label="人均预算" value={plan.perPersonBudget} onChange={(value) => updatePlan("perPersonBudget", value)} />
             <EditorField label="方案说明" value={plan.summary} onChange={(value) => updatePlan("summary", value)} multiline wide />
           </div>
-        </section>
+        </section>}
 
-        <section className="editor-section">
+        {activeSection === "stay" && <section className="editor-section">
           <div className="editor-section-title"><b>02</b><div><h2>住宿信息</h2><p>民宿名称、地址、烧烤和早餐都会同步到 Excel。</p></div></div>
           <div className="editor-grid">
             <EditorField label="民宿名称" value={plan.stay.name} onChange={(value) => updateStay("name", value)} wide />
@@ -691,9 +975,9 @@ function PlanEditor({ plan, saving, onChange, onCancel, onSave }: {
             <EditorField label="早餐安排" value={plan.stay.breakfast} onChange={(value) => updateStay("breakfast", value)} multiline wide />
             <EditorField label="民宿原始链接" value={plan.stay.sourceUrl} inputType="url" onChange={(value) => updateStay("sourceUrl", value)} wide />
           </div>
-        </section>
+        </section>}
 
-        <section className="editor-section">
+        {activeSection === "itinerary" && <section className="editor-section">
           <div className="editor-section-title with-action"><b>03</b><div><h2>周末行程</h2><p>可以增加、删除和调整每一项安排。</p></div><button type="button" className="small-button" onClick={addItinerary}>＋ 添加行程</button></div>
           <div className="editor-card-list">
             {plan.itinerary.map((item, index) => <article className="itinerary-editor-card" key={`${item.day}-${index}`}>
@@ -715,9 +999,9 @@ function PlanEditor({ plan, saving, onChange, onCancel, onSave }: {
             </article>)}
             {!plan.itinerary.length && <div className="editor-empty">还没有行程，点击“添加行程”开始安排。</div>}
           </div>
-        </section>
+        </section>}
 
-        <section className="editor-section">
+        {activeSection === "reservations" && <section className="editor-section">
           <div className="editor-section-title with-action"><b>04</b><div><h2>确认与预订</h2><p>网站只记录进度，不会自动付款或下单。</p></div><button type="button" className="small-button" onClick={addReservation}>＋ 添加待办</button></div>
           <div className="editor-card-list">
             {plan.reservations.map((item, index) => <article className="reservation-editor-card" key={item.id || index}>
@@ -734,10 +1018,10 @@ function PlanEditor({ plan, saving, onChange, onCancel, onSave }: {
             </article>)}
             {!plan.reservations.length && <div className="editor-empty">还没有预订待办，可以从住宿、早餐或密室开始添加。</div>}
           </div>
-        </section>
+        </section>}
       </div>
 
-      <footer className="plan-editor-footer"><span>本次保存会同时覆盖网站最终方案和 Excel「行程首页」。</span><div className="plan-editor-actions"><button type="button" className="small-button" onClick={onCancel} disabled={saving}>取消</button><button type="submit" className="primary" disabled={saving}>{saving ? "正在同步……" : "保存并同步 Excel"}</button></div></footer>
+      <footer className="plan-editor-footer"><span>{dirty ? "有未保存内容；关闭页面前会再次确认。" : "修改任意内容后即可保存。"}</span><div className="plan-editor-actions"><button type="button" className="small-button" onClick={requestCancel} disabled={saving}>关闭</button><button type="submit" className="primary" disabled={saving || !dirty}>{saving ? "正在同步……" : dirty ? "保存到主电脑 Excel" : "没有新修改"}</button></div></footer>
     </form>
   </div>;
 }
@@ -764,11 +1048,11 @@ function FinalField({ label, value }: { label: string; value: unknown }) {
   return <div className="final-field"><span>{label}</span><strong className={isPending(value) ? "pending-value" : ""}>{String(value || "待补充")}</strong><StatusPill value={value} /></div>;
 }
 
-function FinalDay({ day, items }: { day: string; items: FinalPlan["itinerary"] }) {
+function FinalDay({ day, items, destination }: { day: string; items: FinalPlan["itinerary"]; destination: string }) {
   return <article className="final-day-card">
     <header><span>{day === "周五晚上" ? "FRI" : day === "周六" ? "SAT" : "SUN"}</span><h3>{day}</h3><b>{items.length} 项安排</b></header>
     <div className="final-day-items">{items.length ? items.map((item, index) => <div className="final-day-item" key={`${day}-${item.time}-${item.title}-${index}`}>
-      <time>{item.time}{item.endTime ? `–${item.endTime}` : ""}</time><i /><div><span>{item.category}</span><h4>{item.title}</h4><p>{item.subtitle || item.note}</p><small>{[item.address, item.transport].filter(Boolean).join(" · ") || "地点待补充"}</small><div className="itinerary-item-actions"><b className={`status-badge ${statusTone(item.bookingStatus)}`}><i />{item.bookingStatus || "待确认"}</b>{item.address && !isPending(item.address) && <a href={mapSearchUrl(item.address)} target="_blank" rel="noreferrer">地图</a>}{item.sourceUrl && <a href={item.sourceUrl} target="_blank" rel="noreferrer">来源</a>}</div></div>
+      <time>{item.time}{item.endTime ? `–${item.endTime}` : ""}</time><i /><div><span>{item.category}</span><h4>{item.title}</h4><p>{item.subtitle || item.note}</p><small>{[item.address, item.transport].filter(Boolean).join(" · ") || "地点待补充"}</small><div className="itinerary-item-actions"><b className={`status-badge ${statusTone(item.bookingStatus)}`}><i />{item.bookingStatus || "待确认"}</b>{item.address && !isPending(item.address) && <a href={mapSearchUrl(item.address, destination)} target="_blank" rel="noreferrer">地图</a>}{item.sourceUrl && <a href={item.sourceUrl} target="_blank" rel="noreferrer">来源</a>}</div></div>
     </div>) : <div className="day-empty">请在 Excel 首页添加当天安排</div>}</div>
   </article>;
 }

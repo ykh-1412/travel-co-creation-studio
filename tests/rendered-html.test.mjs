@@ -24,12 +24,12 @@ test("server renders the reusable travel co-creation workspace", async () => {
   assert.match(html, /团队最终行程/);
   assert.match(html, /投递链接或想法/);
   assert.match(html, /住宿与待确认事项/);
-  assert.match(html, /最终内容只来自 Excel 第一张/);
+  assert.match(html, /主电脑修改 Excel 后，这里会自动刷新/);
   assert.match(html, /已确定/);
   assert.match(html, /待补充/);
   assert.match(html, /投递想法/);
-  assert.match(html, /重点候选/);
-  assert.match(html, /Excel 管理/);
+  assert.match(html, /候选与需求/);
+  assert.doesNotMatch(html, /主电脑管理|下载 Excel 副本|读取主电脑原文件/);
   assert.doesNotMatch(html, /Your site is taking shape|react-loading-skeleton/);
 });
 

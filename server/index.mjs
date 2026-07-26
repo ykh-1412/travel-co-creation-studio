@@ -1,6 +1,8 @@
 import http from "node:http";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { lookup as dnsLookup } from "node:dns/promises";
 import fs from "node:fs/promises";
+import { isIP } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ExcelJS from "exceljs";
@@ -33,11 +35,15 @@ const requestedWorkbookName = path.basename(process.env.WORKBOOK_FILE_NAME || "�
 const workbookFileName = requestedWorkbookName.toLowerCase().endsWith(".xlsx") ? requestedWorkbookName : `${requestedWorkbookName}.xlsx`;
 const workbookPath = path.join(outputDir, workbookFileName);
 const templateDataFile = path.join(rootDir, "data", "trip-template.json");
-const port = Number(process.env.API_PORT || 8787);
-const host = "0.0.0.0";
+const localPort = Number(process.env.API_PORT || 8787);
+const publicPort = Number(process.env.PUBLIC_API_PORT || localPort + 1);
+const localHost = process.env.API_HOST || "127.0.0.1";
+const publicHost = process.env.PUBLIC_API_HOST || "127.0.0.1";
+const accessModeSymbol = Symbol("travel-access-mode");
 let writeInProgress = false;
 let lastKnownWorkbookMtime = 0;
 let processingChain = Promise.resolve();
+let mutationChain = Promise.resolve();
 
 await fs.mkdir(path.dirname(dataFile), { recursive: true });
 await fs.mkdir(outputDir, { recursive: true });
@@ -335,6 +341,30 @@ function sanitizeFinalPlan(input, current) {
   };
 }
 
+const candidateTypes = ["place", "requirement", "guide"];
+
+function normalizeCandidateType(value, { sourceType = "链接", category = "攻略", dataStatus = "" } = {}) {
+  if (sourceType === "文字" || /团队文字需求|团队诉求/.test(String(dataStatus || ""))) return "requirement";
+  const explicit = String(value || "").trim().toLowerCase();
+  if (candidateTypes.includes(explicit)) return explicit;
+  if (category === "攻略") return "guide";
+  return "place";
+}
+
+function candidateTypeLabel(value) {
+  return { place: "真实候选", requirement: "团队需求", guide: "攻略文章" }[value] || "真实候选";
+}
+
+function normalizeVerificationStatus(value, candidateType, dataStatus = "") {
+  if (candidateType === "requirement") return "团队诉求";
+  const explicit = String(value || "").trim();
+  if (["待核实", "部分核实", "已核实"].includes(explicit)) return explicit;
+  const context = String(dataStatus || "");
+  if (/已核实|官方已确认/.test(context)) return "已核实";
+  if (/partial|部分/.test(context)) return "部分核实";
+  return "待核实";
+}
+
 function normalizeState(raw) {
   const state = raw && typeof raw === "object" ? raw : {};
   const hasWeekendPlan = state.tripProfile?.planVersion === defaultTripProfile.planVersion;
@@ -374,17 +404,26 @@ function normalizeState(raw) {
     "place-007": { address: "扬州市区待选", capacity: "6 人", openingHours: "待核实", reservation: "通常需预约，具体规则待真实链接", bookingStatus: "未预订", difficulty: "中等优先", horrorLevel: "团队确认", usage: "周日上午团队活动" },
   };
   state.places = Array.isArray(state.places) ? state.places.map((item) => {
+    const sourceLink = state.links.find((link) => link.id === item.sourceId);
     const context = `${item.name || ""} ${(item.tags || []).join(" ")} ${item.details?.usage || ""}`;
-    const guideLike = /攻略|游记|指南|百科/i.test(context) || /wikipedia\.org|example\.com\/.*guide/i.test(item.sourceUrl || "");
+    const guideLike = item.category === "攻略" || /攻略|游记|指南|百科/i.test(context);
     const category = normalizeCategory(guideLike ? "攻略" : item.category, context);
+    const placeholderRequirement = !item.sourceUrl && /候选/.test(String(item.name || "")) && /示例|空位|等待|待投递/.test(String(item.dataStatus || ""));
+    const candidateType = placeholderRequirement ? "requirement" : normalizeCandidateType(item.candidateType, {
+      sourceType: sourceLink?.sourceType,
+      category,
+      dataStatus: item.dataStatus,
+    });
     const details = { ...defaultDetails, ...(seedDetails[item.id] || {}), ...(item.details || {}), address: item.details?.address || seedDetails[item.id]?.address || item.area || "待核实" };
     if (item.id === "place-006") details.cuisineType = details.cuisineType === "待核实" ? "早茶早餐" : details.cuisineType;
     if (item.id === "place-007") details.themeName = details.themeName === "待核实" ? "六人密室主题待选" : details.themeName;
-    const subCategory = /wikipedia\.org/i.test(item.sourceUrl || "") ? "综合攻略" : validSubCategory(category, item.subCategory) ? item.subCategory : inferSubCategory(context, category);
+    const subCategory = validSubCategory(category, item.subCategory) ? item.subCategory : inferSubCategory(context, category);
     const featureTags = Array.isArray(item.featureTags) && item.featureTags.includes(category) ? item.featureTags : inferFeatureTags(`${context} ${subCategory}`, category);
     return {
       ...item,
       category,
+      candidateType,
+      verificationStatus: normalizeVerificationStatus(item.verificationStatus, candidateType, item.dataStatus),
       subCategory,
       featureTags,
       tags: Array.isArray(item.tags) ? item.tags : [],
@@ -397,6 +436,10 @@ function normalizeState(raw) {
       details,
     };
   }) : [];
+  state.links = state.links.map((item) => ({
+    ...item,
+    candidateCount: state.places.filter((place) => place.sourceId === item.id).length,
+  }));
   state.itinerary = state.itinerary || {};
   if (!hasWeekendPlan) {
     state.itinerary.day0 = defaultFridayPlan;
@@ -480,10 +523,50 @@ function sendJson(response, status, payload) {
     "Content-Type": "application/json; charset=utf-8",
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "Content-Type",
-    "Access-Control-Allow-Methods": "GET,POST,DELETE,OPTIONS",
+    "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS",
     "Cache-Control": "no-store",
   });
   response.end(JSON.stringify(payload));
+}
+
+function requestHostname(request) {
+  const raw = String(request?.headers?.host || "").trim().toLowerCase();
+  if (!raw) return "";
+  if (raw.startsWith("[")) return raw.slice(1, raw.indexOf("]") > 0 ? raw.indexOf("]") : undefined);
+  if (raw === "::1") return raw;
+  return raw.split(":")[0].replace(/\.$/, "");
+}
+
+function requestAccessMode(request) {
+  return request?.[accessModeSymbol] || request?.accessMode || "public";
+}
+
+function isLocalManagerRequest(request) {
+  return requestAccessMode(request) === "local";
+}
+
+function isAllowedBrowserOrigin(request) {
+  const rawOrigin = String(request?.headers?.origin || "").trim();
+  if (!rawOrigin) return true;
+  let origin;
+  try {
+    origin = new URL(rawOrigin);
+  } catch {
+    return false;
+  }
+  if (requestAccessMode(request) === "local") {
+    return ["localhost", "127.0.0.1", "::1"].includes(origin.hostname)
+      && ["", "3000", String(localPort)].includes(origin.port);
+  }
+  return origin.protocol === "https:"
+    && origin.hostname.endsWith(".ts.net")
+    && origin.hostname === requestHostname(request);
+}
+
+function requireManagement(request, response) {
+  if (isLocalManagerRequest(request) && isAllowedBrowserOrigin(request)) return true;
+  sendJson(response, 403, { error: "此操作仅能在发起人的本机管理界面完成" });
+  return false;
 }
 
 function safeCredentialMatch(actual, expected) {
@@ -493,13 +576,7 @@ function safeCredentialMatch(actual, expected) {
 }
 
 function isPublicTunnelRequest(request) {
-  if (/^(1|true|yes)$/i.test(process.env.PUBLIC_REQUIRE_PASSWORD || "")) return true;
-  const hostHeader = String(request.headers.host || "").toLowerCase().split(":")[0];
-  return (
-    Boolean(request.headers["cf-connecting-ip"]) ||
-    hostHeader.endsWith(".trycloudflare.com") ||
-    hostHeader.endsWith(".ts.net")
-  );
+  return requestAccessMode(request) === "public";
 }
 
 function publicAccessToken() {
@@ -571,13 +648,94 @@ async function readBody(request) {
   return chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {};
 }
 
-function cleanUrl(value) {
+function normalizedHostname(value) {
+  return String(value || "").trim().toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+}
+
+function isBlockedNetworkAddress(value, { allowProxySynthetic = false } = {}) {
+  const address = normalizedHostname(value);
+  const family = isIP(address);
+  if (family === 4) {
+    const [a, b, c] = address.split(".").map(Number);
+    if (a === 0 || a === 10 || a === 127 || a >= 224) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 192 && b === 0 && (c === 0 || c === 2)) return true;
+    if (a === 198 && (b === 18 || b === 19)) return !allowProxySynthetic;
+    if (a === 198 && b === 51 && c === 100) return true;
+    if (a === 203 && b === 0 && c === 113) return true;
+    return false;
+  }
+  if (family === 6) {
+    if (address === "::" || address === "::1") return true;
+    if (/^(?:fc|fd)/.test(address) || /^fe[89ab]/.test(address) || /^ff/.test(address) || /^2001:db8/.test(address)) return true;
+    if (/^(?:0*:)*ffff:/.test(address)) {
+      const mapped = address.split(":").at(-1);
+      return mapped && isIP(mapped) === 4 ? isBlockedNetworkAddress(mapped, { allowProxySynthetic }) : true;
+    }
+    return false;
+  }
+  return false;
+}
+
+function assertPublicHttpUrl(value) {
   const url = new URL(value);
+  if (!["http:", "https:"].includes(url.protocol)) throw new Error("仅支持 http 或 https 公网链接");
+  if (url.username || url.password) throw new Error("链接不能包含账号或密码");
+  const hostname = normalizedHostname(url.hostname);
+  if (!hostname || hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local")
+    || hostname.endsWith(".internal") || hostname.endsWith(".lan") || hostname.endsWith(".home.arpa")) {
+    throw new Error("不能读取本机或局域网地址");
+  }
+  if (isIP(hostname) && isBlockedNetworkAddress(hostname)) throw new Error("不能读取本机或局域网地址");
+  return url;
+}
+
+function cleanUrl(value) {
+  const url = assertPublicHttpUrl(value);
   url.hash = "";
   for (const key of [...url.searchParams.keys()]) {
     if (/^(utm_|spm|from|source)/i.test(key)) url.searchParams.delete(key);
   }
   return url.toString();
+}
+
+async function ensurePublicDestination(url) {
+  const checked = assertPublicHttpUrl(url);
+  const hostname = normalizedHostname(checked.hostname);
+  if (isIP(hostname)) return;
+  let addresses;
+  try {
+    addresses = await dnsLookup(hostname, { all: true, verbatim: true });
+  } catch {
+    throw new Error("域名暂时无法解析");
+  }
+  if (!addresses.length) throw new Error("域名没有可用地址");
+  // Clash/TUN 的 fake-ip 模式会把公网域名映射到 198.18.0.0/15；只对域名解析结果兼容，用户直接填写该网段仍会被拦截。
+  if (addresses.some((item) => isBlockedNetworkAddress(item.address, { allowProxySynthetic: true }))) {
+    throw new Error("链接解析到了本机或局域网地址，已停止读取");
+  }
+}
+
+async function fetchExternalPage(value) {
+  let target = assertPublicHttpUrl(value);
+  for (let redirectCount = 0; redirectCount <= 5; redirectCount += 1) {
+    await ensurePublicDestination(target);
+    const response = await fetch(target, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; TravelCoCreationStudio/1.0; local team research)" },
+      redirect: "manual",
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (![301, 302, 303, 307, 308].includes(response.status)) return response;
+    const location = response.headers.get("location");
+    if (!location) return response;
+    if (redirectCount === 5) throw new Error("网页跳转次数过多");
+    await response.body?.cancel();
+    target = assertPublicHttpUrl(new URL(location, target));
+  }
+  throw new Error("网页跳转次数过多");
 }
 
 function decodeEntities(value) {
@@ -640,13 +798,47 @@ function systemPromptFor(category, sourceType = "链接", trip = {}) {
   const stayPreference = String(trip.tripProfile?.stayPreference || "住宿条件待团队确认");
   const activity = String(trip.tripProfile?.activity || "团队活动待确认");
   const sourceRule = sourceType === "文字"
-    ? "本次输入是团队成员直接写下的个人诉求，不是商家页面。把明确表达的预算、位置、人数、类型、环境和偏好提取为需求条件；不得把愿望写成已经核实的商家事实。name 写成简短的需求名称，dataStatus 写明‘团队文字需求，具体商户待匹配’，factsFound 记录已表达的偏好，missingFields 记录仍需用真实链接或商户信息核实的内容。"
-    : "本次输入是网页链接。只根据网页正文提取事实，无法读取或正文未写明的内容必须标为待核实。";
+    ? "本次输入是团队成员直接写下的个人诉求，不是商家页面。只返回一个 candidateType=requirement 的候选，把明确表达的预算、位置、人数、类型、环境和偏好提取为需求条件；不得把愿望写成已经核实的商家事实。name 写成简短的需求名称，dataStatus 写明‘团队文字需求，具体商户待匹配’，factsFound 记录已表达的偏好，missingFields 记录仍需用真实链接或商户信息核实的内容。"
+    : "本次输入是网页链接。先判断它是单一商户/地点页面，还是攻略、榜单、合集。单一商户只返回一个 candidateType=place；攻略、榜单、合集要把正文中每个名称明确的商户、住宿、景点或活动拆成独立的 candidateType=place 候选，不能把十家店合成一张卡。若正文只是泛泛攻略、没有足够信息形成具体地点，则返回一个 candidateType=guide 的文章候选。只根据网页正文提取事实，无法读取或正文未写明的内容必须标为待核实。";
   return `你是“出行共创台”的旅行资料整理助手。本次目的地是“${destination}”，同行 ${people} 人，行程结构是“${schedule}”，住宿偏好是“${stayPreference}”，团队活动偏好是“${activity}”。你的任务是把团队投递整理成可在 Excel 横向比较的数据。${sourceRule}输出严格 JSON，不得猜测或编造。
-顶层字段必须包含：name, category, subCategory, featureTags(string数组), area, price(number或null), priceLabel, duration, summary, tags(string数组), pros(string数组), cons(string数组), score(0到5), dataStatus, factsFound(string数组), missingFields(string数组), details(object)。
+顶层必须是对象并包含 candidates 数组；数组每项必须包含：candidateType(place|requirement|guide), name, category, subCategory, featureTags(string数组), area, price(number或null), priceLabel, duration, summary, tags(string数组), pros(string数组), cons(string数组), score(0到5), dataStatus, verificationStatus(待核实|部分核实|已核实), factsFound(string数组), missingFields(string数组), details(object)。最多返回 20 个候选。另可在顶层提供 summary、factsFound、missingFields，概括整篇来源。
 category 只能是住宿、餐饮、密室、休闲娱乐、景点、攻略。当前预分类是“${category}”，只有正文明确证明分类错误时才调整。featureTags 可多选，例如烧烤、火锅、微恐、中恐、汗蒸、桑拿、洗浴、可过夜、适合6人。
 所有类别都要提取具体地点、价格、营业或入住时间、预约/取消规则、适合人数、优缺点和证据。details.sixPersonTotal 与 details.sixPersonSession 是兼容旧数据的内部字段，分别表示当前 ${people} 人团队总价与当前团队能否独立成团。${categoryFieldInstructions[category] || categoryFieldInstructions.攻略}
 evidence 用简短文字概括输入中明确表达的事实或偏好，不编造引文。输入没有明确写出的字段写“待核实”，并放入 missingFields。无关字段可以省略，系统会自动补齐。`;
+}
+
+function normalizeAnalysisCandidates(analysis, fallback, { sourceType = "链接" } = {}) {
+  const envelope = analysis && typeof analysis === "object" ? analysis : {};
+  const supplied = Array.isArray(envelope)
+    ? envelope
+    : Array.isArray(envelope.candidates)
+      ? envelope.candidates
+      : [envelope];
+  const valid = supplied.filter((item) => item && typeof item === "object" && !Array.isArray(item)).slice(0, 20);
+  const candidates = valid.length ? valid : [fallback];
+  return candidates.slice(0, sourceType === "文字" ? 1 : 20).map((item, index) => {
+    const base = index === 0 ? fallback : {
+      ...fallback,
+      name: "",
+      summary: "",
+      factsFound: [],
+      missingFields: [],
+      details: { ...defaultDetails },
+    };
+    const category = normalizeCategory(item.category || base.category, `${item.name || ""} ${item.summary || ""}`);
+    const candidateType = sourceType === "文字"
+      ? "requirement"
+      : normalizeCandidateType(item.candidateType, { sourceType, category, dataStatus: item.dataStatus });
+    return {
+      ...base,
+      ...item,
+      candidateType,
+      category: candidateType === "guide" ? "攻略" : category,
+      details: { ...(base.details || {}), ...(item.details && typeof item.details === "object" ? item.details : {}) },
+      factsFound: stringList(item.factsFound, base.factsFound || []),
+      missingFields: stringList(item.missingFields, base.missingFields || []),
+    };
+  });
 }
 
 async function modelAnalysis(content, fallback, category, sourceType = "链接", trip = {}) {
@@ -663,7 +855,7 @@ async function modelAnalysis(content, fallback, category, sourceType = "链接",
         model,
         thinking: { type: "disabled" },
         temperature: 0.2,
-        max_tokens: 3_200,
+        max_tokens: 8_000,
         response_format: { type: "json_object" },
         messages: [{ role: "system", content: systemPrompt }, { role: "user", content }],
       }),
@@ -838,18 +1030,101 @@ async function updateLink(id, patch) {
   return state.links[index];
 }
 
+function candidateIdentity(candidate) {
+  return `${candidate.candidateType || ""}|${candidate.category || ""}|${String(candidate.name || "").replace(/\s+/g, "").toLowerCase()}`;
+}
+
+function normalizedCandidateName(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[“”"'`·•\s\-_（）()\[\]【】，,。.!！?？:：/\\]/g, "")
+    .replace(/候选|推荐|攻略|风景区|景区/g, "");
+}
+
+function candidateNameSimilarity(left, right) {
+  const a = normalizedCandidateName(left);
+  const b = normalizedCandidateName(right);
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  if (Math.min(a.length, b.length) >= 3 && (a.includes(b) || b.includes(a))) return 0.9;
+  const grams = (text) => new Set(Array.from({ length: Math.max(0, text.length - 1) }, (_, index) => text.slice(index, index + 2)));
+  const aGrams = grams(a);
+  const bGrams = grams(b);
+  if (!aGrams.size || !bGrams.size) return 0;
+  const overlap = [...aGrams].filter((item) => bGrams.has(item)).length;
+  return overlap / new Set([...aGrams, ...bGrams]).size;
+}
+
+function findExistingCandidate(existingForSource, unusedExisting, proposed) {
+  const exact = existingForSource.find((item) => unusedExisting.has(item.id) && candidateIdentity(item) === candidateIdentity(proposed));
+  if (exact) return exact;
+  const ranked = existingForSource
+    .filter((item) => unusedExisting.has(item.id) && item.candidateType === proposed.candidateType && item.category === proposed.category)
+    .map((item) => ({
+      item,
+      similarity: candidateNameSimilarity(item.name, proposed.name),
+      categoryBonus: item.category === proposed.category ? 0.12 : 0,
+    }))
+    .sort((left, right) => (right.similarity + right.categoryBonus) - (left.similarity + left.categoryBonus));
+  return ranked[0] && ranked[0].similarity + ranked[0].categoryBonus >= 0.78 ? ranked[0].item : null;
+}
+
+function hasProtectedHumanState(place) {
+  return Boolean(
+    place.selected
+    || Object.keys(place.votes || {}).length
+    || Object.keys(place.manualOverrides || {}).length
+    || String(place.manualNote || "").trim()
+    || ["拟定", "备选", "淘汰"].includes(place.decisionStatus),
+  );
+}
+
+function preserveUnmatchedCandidate(place) {
+  const note = "新一轮分析未匹配到此条，因含人工结论已保留，请在主电脑确认";
+  return {
+    ...place,
+    dataStatus: String(place.dataStatus || "").includes("新一轮分析未匹配") ? place.dataStatus : [place.dataStatus, note].filter(Boolean).join("；"),
+    missingFields: [...new Set([...(place.missingFields || []), "确认是否被新分析结果替代"])],
+  };
+}
+
+function generatedCandidateId(sourceId, candidate) {
+  const location = normalizedCandidateName(candidate.details?.address || candidate.area || candidate.sourceUrl || "");
+  const digest = createHash("sha1").update(`${sourceId}|${candidateIdentity(candidate)}|${location}`).digest("hex").slice(0, 16);
+  return `place-${digest}`;
+}
+
+function dedupeAnalysisCandidates(candidates, { isText = false, fallbackCategory = "其他", fallbackName = "候选" } = {}) {
+  const seen = new Set();
+  return candidates.filter((candidate) => {
+    const resolvedCategory = normalizeCategory(candidate.category || fallbackCategory, `${candidate.name || fallbackName} ${candidate.summary || ""}`);
+    const candidateType = isText ? "requirement" : normalizeCandidateType(candidate.candidateType, {
+      sourceType: "链接",
+      category: resolvedCategory,
+      dataStatus: candidate.dataStatus,
+    });
+    const effectiveCategory = candidateType === "guide" ? "攻略" : resolvedCategory;
+    const name = normalizedCandidateName(limitedText(candidate.name, fallbackName, 160));
+    const location = normalizedCandidateName(candidate.details?.address || candidate.area || candidate.sourceUrl || "");
+    const key = `${candidateType}|${effectiveCategory}|${name}|${location}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 async function processLink(id) {
   const initialState = await readState();
   const initialRecord = initialState.links.find((item) => item.id === id);
   const isText = initialRecord?.sourceType === "文字" || (!initialRecord?.url && Boolean(initialRecord?.inputText));
-  const record = await updateLink(id, {
+  const record = await serializeMutation(() => updateLink(id, {
     status: isText ? "AI分析中" : "正在读取",
     readStatus: isText ? "文字已接收" : "等待读取",
     organizedStatus: "整理中",
     resultNote: isText ? "正在理解并整理团队诉求" : "正在读取网页",
     model: providerLabel(),
     error: "",
-  });
+  }));
   if (!record) return;
   try {
     let title;
@@ -859,11 +1134,7 @@ async function processLink(id) {
       if (text.length < 3) throw new Error("文字内容过少，请补充更具体的旅行诉求");
       title = record.title || textSubmissionTitle(text);
     } else {
-      const response = await fetch(record.url, {
-        headers: { "User-Agent": "Mozilla/5.0 (compatible; TravelCoCreationStudio/1.0; local team research)" },
-        redirect: "follow",
-        signal: AbortSignal.timeout(20_000),
-      });
+      const response = await fetchExternalPage(record.url);
       if (!response.ok) throw new Error(`网页返回 ${response.status}`);
       const html = (await response.text()).slice(0, 1_500_000);
       title = extractTitle(html, new URL(record.url).hostname);
@@ -871,84 +1142,130 @@ async function processLink(id) {
       if (text.length < 40) throw new Error("网页正文过少，可能需要登录或验证码");
     }
     const category = classify(`${title} ${text}`, record.category);
-    await updateLink(id, {
+    await serializeMutation(() => updateLink(id, {
       status: "AI分析中",
       title,
       category,
       readStatus: isText ? "文字已接收" : "成功读取",
       organizedStatus: "整理中",
       resultNote: isText ? "文字已接收，正在提取需求条件" : "网页已读取，正在提取事实",
-    });
+    }));
     const destination = String(initialState.project?.destination || initialState.finalPlan?.destination || "");
     const fallback = isText ? demoTextAnalysis(text, category, destination) : demoAnalysis(title, text, category, record.url, destination);
     const modelInput = isText
       ? `来源类型：团队文字诉求\n提交人：${record.submitter}\n原始文字：${text}\n补充说明：${record.note || "无"}`
       : `来源类型：网页链接\n链接：${record.url}\n标题：${title}\n正文：${text}`;
     const analysis = await modelAnalysis(modelInput, fallback, category, isText ? "文字" : "链接", initialState);
+    const analysedCandidates = dedupeAnalysisCandidates(
+      normalizeAnalysisCandidates(analysis, fallback, { sourceType: isText ? "文字" : "链接" }),
+      { isText, fallbackCategory: category, fallbackName: title },
+    );
+    await serializeMutation(async () => {
     const state = await readState();
     const linkIndex = state.links.findIndex((item) => item.id === id);
     if (linkIndex < 0) return;
-    const factsFound = stringList(analysis.factsFound, fallback.factsFound).slice(0, 12);
-    const rawMissingFields = stringList(analysis.missingFields, fallback.missingFields);
-    const missingFields = (isText ? filterTextMissingFields(rawMissingFields, text, destination) : rawMissingFields).slice(0, 12);
-    const resolvedCategory = normalizeCategory(analysis.category || category, `${title} ${analysis.summary || ""}`);
-    const inferredSubCategory = inferSubCategory(`${title} ${text}`, resolvedCategory);
-    const proposedSubCategory = String(analysis.subCategory || inferredSubCategory).slice(0, 80);
-    const subCategory = validSubCategory(resolvedCategory, proposedSubCategory) ? proposedSubCategory : inferredSubCategory;
-    const featureTags = [...new Set([
-      ...stringList(analysis.featureTags),
-      ...inferFeatureTags(`${title} ${text} ${subCategory}`, resolvedCategory),
-    ])].slice(0, 12);
+    const existingForSource = state.places.filter((item) => item.sourceId === id);
+    const unusedExisting = new Set(existingForSource.map((item) => item.id));
+    const mappedPlaces = analysedCandidates.map((candidate) => {
+      const resolvedCategory = normalizeCategory(candidate.category || category, `${candidate.name || title} ${candidate.summary || ""}`);
+      const candidateType = isText ? "requirement" : normalizeCandidateType(candidate.candidateType, {
+        sourceType: "链接",
+        category: resolvedCategory,
+        dataStatus: candidate.dataStatus,
+      });
+      const effectiveCategory = candidateType === "guide" ? "攻略" : resolvedCategory;
+      const inferredSubCategory = inferSubCategory(`${candidate.name || title} ${candidate.summary || ""} ${text}`, effectiveCategory);
+      const proposedSubCategory = String(candidate.subCategory || inferredSubCategory).slice(0, 80);
+      const subCategory = validSubCategory(effectiveCategory, proposedSubCategory) ? proposedSubCategory : inferredSubCategory;
+      const featureTags = [...new Set([
+        ...stringList(candidate.featureTags),
+        ...inferFeatureTags(`${candidate.name || title} ${candidate.summary || ""} ${subCategory}`, effectiveCategory),
+      ])].slice(0, 12);
+      const rawMissingFields = stringList(candidate.missingFields, fallback.missingFields);
+      const candidateMissingFields = (isText ? filterTextMissingFields(rawMissingFields, text, destination) : rawMissingFields).slice(0, 12);
+      const proposedIdentity = { ...candidate, name: limitedText(candidate.name, title, 160), candidateType, category: effectiveCategory };
+      let existingPlace = findExistingCandidate(existingForSource, unusedExisting, proposedIdentity);
+      if (!existingPlace && analysedCandidates.length === 1 && existingForSource.length === 1
+        && existingForSource[0].candidateType === candidateType && existingForSource[0].category === effectiveCategory) existingPlace = existingForSource[0];
+      if (existingPlace) unusedExisting.delete(existingPlace.id);
+      const dataStatus = candidate.dataStatus || (isText ? "团队文字需求，具体商户待匹配" : "AI总结，等待人工核实");
+      const analysedPlace = {
+        id: existingPlace?.id || generatedCandidateId(id, { ...candidate, candidateType, category: effectiveCategory }),
+        sourceId: id,
+        candidateType,
+        verificationStatus: existingPlace?.verificationStatus || normalizeVerificationStatus(candidate.verificationStatus, candidateType, dataStatus),
+        name: limitedText(candidate.name, title, 160),
+        category: effectiveCategory,
+        subCategory,
+        featureTags,
+        area: limitedText(candidate.area, "地点待核实", 200),
+        price: Number.isFinite(Number(candidate.price)) && candidate.price !== null && candidate.price !== "" ? Number(candidate.price) : null,
+        priceLabel: limitedText(candidate.priceLabel, "价格待核实", 120),
+        duration: limitedText(candidate.duration, "时长待核实", 120),
+        summary: limitedText(candidate.summary, "", 1_000),
+        factsFound: stringList(candidate.factsFound, fallback.factsFound).slice(0, 12),
+        missingFields: candidateMissingFields,
+        score: Math.max(0, Math.min(5, Number(candidate.score) || 3.5)),
+        tags: stringList(candidate.tags, featureTags).slice(0, 8),
+        pros: stringList(candidate.pros, fallback.pros || ["等待进一步分析"]).slice(0, 4),
+        cons: stringList(candidate.cons, fallback.cons || ["关键信息待核实"]).slice(0, 4),
+        selected: existingPlace?.selected || false,
+        votes: existingPlace?.votes || {},
+        decisionStatus: existingPlace?.decisionStatus || (existingPlace?.selected ? "拟定" : "待比较"),
+        manualNote: existingPlace?.manualNote || "",
+        manualOverrides: existingPlace?.manualOverrides || {},
+        sourceUrl: safeWebUrl(candidate.sourceUrl, record.url),
+        dataStatus,
+        details: normalizeDetails(candidate.details),
+      };
+      return applyManualOverrides(analysedPlace, existingPlace?.manualOverrides);
+    });
+    const nextPlaces = [...new Map(mappedPlaces.map((item) => [item.id, item])).values()];
+    const preservedUnmatched = existingForSource
+      .filter((item) => unusedExisting.has(item.id) && hasProtectedHumanState(item))
+      .map(preserveUnmatchedCandidate);
+    const sourcePlaces = [...nextPlaces, ...preservedUnmatched];
+    const envelope = analysis && typeof analysis === "object" && !Array.isArray(analysis) ? analysis : {};
+    const factsFound = [...new Set([
+      ...stringList(envelope.factsFound),
+      ...nextPlaces.flatMap((item) => item.factsFound || []),
+    ])].slice(0, 20);
+    const missingFields = [...new Set([
+      ...stringList(envelope.missingFields),
+      ...nextPlaces.flatMap((item) => item.missingFields || []),
+    ])].slice(0, 20);
+    const candidateCategories = [...new Set(nextPlaces.map((item) => item.category))];
+    const resolvedLinkCategory = candidateCategories.length === 1 ? candidateCategories[0] : category;
+    const linkSubCategory = nextPlaces.length === 1
+      ? nextPlaces[0].subCategory
+      : inferSubCategory(`${title} ${text}`, resolvedLinkCategory);
     state.links[linkIndex] = {
       ...state.links[linkIndex],
       title,
-      category: resolvedCategory,
-      subCategory,
-      summary: analysis.summary || fallback.summary,
+      category: resolvedLinkCategory,
+      subCategory: linkSubCategory,
+      summary: limitedText(envelope.summary, nextPlaces.map((item) => item.summary).filter(Boolean).join("；") || fallback.summary, 2_000),
       status: "已写入Excel",
       readStatus: isText ? "文字已接收" : "成功读取",
       organizedStatus: "已整理",
+      candidateCount: sourcePlaces.length,
       factsFound,
       missingFields,
-      resultNote: missingFields.length ? `已整理；仍有 ${missingFields.length} 项待核实` : "已完整整理并写入 Excel",
+      resultNote: preservedUnmatched.length
+        ? `已整理出 ${nextPlaces.length} 个新结果，另保留 ${preservedUnmatched.length} 个含人工结论的旧结果待确认`
+        : missingFields.length ? `已整理出 ${nextPlaces.length} 个候选；仍有 ${missingFields.length} 项待核实` : `已完整整理出 ${nextPlaces.length} 个候选并写入 Excel`,
       model: providerLabel(),
       updatedAt: new Date().toISOString(),
       error: "",
     };
-    const existingIndex = state.places.findIndex((item) => item.sourceId === id);
-    const existingPlace = existingIndex >= 0 ? state.places[existingIndex] : null;
-    const analysedPlace = {
-      id: existingPlace?.id || `place-${randomUUID()}`,
-      sourceId: id,
-      name: analysis.name || title,
-      category: resolvedCategory,
-      subCategory,
-      featureTags,
-      area: analysis.area || "地点待核实",
-      price: Number.isFinite(analysis.price) ? analysis.price : null,
-      priceLabel: analysis.priceLabel || "价格待核实",
-      duration: analysis.duration || "时长待核实",
-      score: Math.max(0, Math.min(5, Number(analysis.score) || 3.5)),
-      tags: stringList(analysis.tags, featureTags).slice(0, 8),
-      pros: stringList(analysis.pros, fallback.pros || ["等待进一步分析"]).slice(0, 4),
-      cons: stringList(analysis.cons, fallback.cons || ["关键信息待核实"]).slice(0, 4),
-      selected: existingPlace?.selected || false,
-      votes: existingPlace?.votes || {},
-      decisionStatus: existingPlace?.decisionStatus || (existingPlace?.selected ? "拟定" : "待比较"),
-      manualNote: existingPlace?.manualNote || "",
-      manualOverrides: existingPlace?.manualOverrides || {},
-      sourceUrl: record.url,
-      dataStatus: analysis.dataStatus || (isText ? "团队文字需求，具体商户待匹配" : "AI总结，等待人工核实"),
-      details: normalizeDetails(analysis.details),
-    };
-    const place = applyManualOverrides(analysedPlace, existingPlace?.manualOverrides);
-    if (existingIndex >= 0) state.places[existingIndex] = place;
-    else state.places.unshift(place);
+    state.places = [...sourcePlaces, ...state.places.filter((item) => item.sourceId !== id)];
     await writeState(state);
     await syncToExcel(state);
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "未知错误";
     const blocked = !isText && /登录|验证码|正文过少|403|401/.test(message);
+    await serializeMutation(async () => {
     await updateLink(id, {
       status: blocked ? "需要人工补充" : "处理失败",
       readStatus: isText ? "文字解析失败" : blocked ? "读取受限" : "读取失败",
@@ -961,7 +1278,16 @@ async function processLink(id) {
     });
     const state = await readState();
     await syncToExcel(state).catch(() => {});
+    });
   }
+}
+
+function serializeMutation(task) {
+  const run = mutationChain.then(task, task);
+  mutationChain = run.catch((error) => {
+    console.error("State mutation failed:", error);
+  });
+  return run;
 }
 
 function enqueueLink(id) {
@@ -971,9 +1297,10 @@ function enqueueLink(id) {
 }
 
 const headers = {
-  links: ["ID", "来源类型", "提交时间", "提交人", "原始内容", "页面标题 / 需求名称", "原始链接", "大类", "子分类", "读取结果", "整理结果", "处理状态", "已提取信息", "缺失信息", "AI摘要", "分析模型", "错误原因", "备注"],
-  report: ["ID", "来源类型", "提交人", "页面标题 / 需求名称", "原始内容", "大类", "子分类", "读取结果", "整理结果", "结果说明", "已提取信息", "缺失信息", "错误原因", "原始链接", "更新时间"],
-  decisions: ["ID", "大类", "子分类", "名称", "区域 / 位置", "参考价格", "核心规格", "特征标签", "主要亮点", "主要风险", "资料完整度", "缺失信息", "AI推荐分", "想去票", "可以票", "不考虑票", "人工结论", "是否入选", "人工备注", "人工保护字段", "来源类型", "团队原始诉求", "原始链接"],
+  links: ["ID", "来源类型", "提交时间", "提交人", "原始内容", "页面标题 / 需求名称", "原始链接", "大类", "子分类", "读取结果", "整理结果", "处理状态", "生成候选数", "已提取信息", "缺失信息", "AI摘要", "分析模型", "错误原因", "备注"],
+  report: ["ID", "来源类型", "提交人", "页面标题 / 需求名称", "原始内容", "大类", "子分类", "读取结果", "整理结果", "生成候选数", "结果说明", "已提取信息", "缺失信息", "错误原因", "原始链接", "更新时间"],
+  decisions: ["ID", "记录类型", "核实状态", "大类", "子分类", "名称", "区域 / 位置", "参考价格", "核心规格", "特征标签", "主要亮点", "主要风险", "资料完整度", "缺失信息", "AI推荐分", "想去票", "可以票", "不考虑票", "人工结论", "是否入选", "人工备注", "人工保护字段", "来源类型", "团队原始诉求", "原始链接"],
+  requirements: ["ID", "需求名称", "大类", "子分类", "偏好标签", "目标区域", "预算", "期望时长", "需求摘要", "已表达条件", "仍需匹配", "提交人", "团队原始诉求", "处理状态", "人工结论", "是否采用", "人工备注"],
   stays: ["ID", "名称", "子分类", "特征标签", "区域", "详细地址", "地段特点", "核心景点距离", "每晚价格", "两晚总价", "额外费用", "押金", "适合人数", "户型", "房间", "床位", "床型", "卫浴", "环境特点", "是否整租", "厨房", "能否烧烤", "烧烤设备/费用", "早餐", "停车", "交通", "入住时间", "退房时间", "取消政策", "预订要求", "预订状态", "优点", "缺点", "推荐分", "资料完整度", "缺失信息", "证据摘要", "想去票", "可以票", "不考虑票", "投票详情", "人工结论", "是否入选", "人工备注", "人工保护字段", "来源类型", "团队原始诉求", "原始链接", "数据状态"],
   food: ["ID", "名称", "子分类", "特征标签", "适合安排", "区域", "详细地址", "人均价格", "团队预计总价", "招牌菜", "包间", "团队适合度", "排队情况", "营业时间", "预约要求", "取消政策", "停车", "环境特点", "预订状态", "优点", "缺点", "推荐分", "资料完整度", "缺失信息", "证据摘要", "想去票", "可以票", "不考虑票", "投票详情", "人工结论", "是否入选", "人工备注", "人工保护字段", "来源类型", "团队原始诉求", "原始链接", "数据状态"],
   escapes: ["ID", "名称", "主题名称", "子分类", "特征标签", "区域", "详细地址", "单人价格", "团队预计总价", "恐怖程度", "难度", "玩法类型", "场地规模", "房间数量", "推荐人数", "最少人数", "最多人数", "团队独立开场", "时长", "NPC/真人互动", "体力消耗", "换装", "营业时间", "预约要求", "取消政策", "停车", "预订状态", "优点", "缺点", "推荐分", "资料完整度", "缺失信息", "证据摘要", "想去票", "可以票", "不考虑票", "投票详情", "人工结论", "是否入选", "人工备注", "人工保护字段", "来源类型", "团队原始诉求", "原始链接", "数据状态"],
@@ -989,13 +1316,14 @@ const headers = {
 const sheetDescriptions = {
   "投递汇总": "链接和团队文字诉求的完整台账；失败记录也会保留，不会静默丢失。",
   "处理报告": "快速查看哪些投递已成功整理、哪些未整理，以及缺失了什么。",
-  "候选决策台": "优先在这里筛选：比较价格、位置、核心规格和缺失项；黄色“人工结论 / 是否入选 / 人工备注”可直接修改。",
+  "候选决策台": "决策的唯一修改入口：黄色列会同步到网站。真实地点的“是否入选”表示地点入选；团队需求或攻略的“是”表示线索已采纳，不会自动写入行程。",
+  "团队需求": "团队成员写下的愿望和约束，只作为匹配条件；标记“采用”表示确认这条需求，不代表已经选定真实商户。",
   "住宿候选": "民宿完整明细：价格、位置、户型、床位、烧烤、费用和取消政策；黄色列可直接修改。",
   "美食餐饮": "按烧烤、火锅、炒菜、早茶等分类；比较人均、团队总价、包间、排队和招牌菜。",
   "密室候选": "按主题和玩法分类；比较微恐/中恐、难度、规模、人数、价格、NPC 和预约规则。",
   "室内休闲": "按汗蒸、桑拿、洗浴、温泉等分类；比较套餐、设施、过夜、餐食和使用限制。",
   "景点户外": "园林、博物馆、历史街区和户外项目；当前优先确认具体地点、票价、开放时间与天气影响。",
-  "攻略文章": "攻略完整明细：摘要、避坑、证据、缺失信息和团队意见；黄色列可直接修改。",
+  "攻略文章": "攻略完整明细：摘要、避坑、证据和缺失信息；决策状态请统一到“候选决策台”修改。",
   "两日行程": "包含周五晚抵达，以及周六、周日两天的初版安排。",
   "预订清单": "所有需要团队确认或下单的事项；网站不会代替你付款。",
   "项目设置": "本次团队出行的需求约束与运行设置。",
@@ -1032,7 +1360,9 @@ function hasUsefulFact(value) {
 function candidateQuality(place, link) {
   const d = place.details || defaultDetails;
   let checks;
-  if (place.category === "住宿") {
+  if (place.candidateType === "requirement") {
+    checks = [["原始诉求", link?.inputText], ["需求分类", place.category], ["关键偏好", place.featureTags?.[0]], ["需求摘要", place.summary || link?.summary]];
+  } else if (place.category === "住宿") {
     checks = [["详细地址", d.address], ["价格", place.price ?? d.twoNightTotal], ["团队人数容量", d.capacity], ["户型", d.roomType], ["房间", d.rooms], ["床位 / 床型", hasUsefulFact(d.beds) ? d.beds : d.bedTypes], ["卫浴", d.bathrooms], ["烧烤", d.barbecue], ["取消政策", d.cancellationPolicy]];
   } else if (place.category === "餐饮") {
     checks = [["子分类", place.subCategory], ["详细地址", d.address], ["人均价格", place.price], ["招牌菜", d.signatureDishes], ["团队适合度", d.groupSuitability], ["营业时间", d.openingHours], ["预约要求", d.reservation]];
@@ -1135,7 +1465,7 @@ function replaceRows(sheet, rows, columnCount) {
 }
 
 function styleCandidateDecisions(sheet, sheetHeaders, rowCount) {
-  const editableColumns = ["人工结论", "是否入选", "人工备注"];
+  const editableColumns = ["核实状态", "人工结论", "是否入选", "是否采用", "人工备注"];
   for (let rowNumber = 4; rowNumber < 4 + Math.max(rowCount, 1); rowNumber += 1) {
     for (const header of editableColumns) {
       const column = sheetHeaders.indexOf(header) + 1;
@@ -1144,8 +1474,9 @@ function styleCandidateDecisions(sheet, sheetHeaders, rowCount) {
       cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF4D6" } };
       cell.font = { name: "PingFang SC", color: { argb: "8A542C" }, size: 9, bold: header !== "人工备注" };
       cell.alignment = { vertical: "middle", horizontal: header === "人工备注" ? "left" : "center", wrapText: true };
-      if (header === "是否入选") cell.dataValidation = { type: "list", allowBlank: false, formulae: ['"是,否"'] };
+      if (["是否入选", "是否采用"].includes(header)) cell.dataValidation = { type: "list", allowBlank: false, formulae: ['"是,否"'] };
       if (header === "人工结论") cell.dataValidation = { type: "list", allowBlank: false, formulae: ['"待比较,备选,拟定,淘汰"'] };
+      if (header === "核实状态") cell.dataValidation = { type: "list", allowBlank: false, formulae: ['"待核实,部分核实,已核实,团队诉求"'] };
     }
   }
 }
@@ -1360,21 +1691,31 @@ async function syncToExcel(state) {
       const quality = candidateQuality(item, link);
       const missing = [...new Set([...(link?.missingFields || []), ...quality.missing])];
       const [support, okay, reject] = placeVoteColumns(item);
-      return [item.id, item.category, item.subCategory, item.name, item.area, placePriceSummary(item), placeCoreSpec(item), item.featureTags.join("；"), item.pros[0] || "等待整理", item.cons[0] || "等待核实", quality.ratio, missing.join("；"), item.score, support, okay, reject, item.decisionStatus || "待比较", item.selected ? "是" : "否", item.manualNote || "", manualOverrideSummary(item), link?.sourceType || (item.sourceId ? "链接" : "示例"), link?.inputText || "", item.sourceUrl];
+      return [item.id, candidateTypeLabel(item.candidateType), item.verificationStatus, item.category, item.subCategory, item.name, item.area, placePriceSummary(item), placeCoreSpec(item), item.featureTags.join("；"), item.pros[0] || "等待整理", item.cons[0] || "等待核实", quality.ratio, missing.join("；"), item.score, support, okay, reject, item.decisionStatus || "待比较", item.selected ? "是" : "否", item.manualNote || "", manualOverrideSummary(item), link?.sourceType || (item.sourceId ? "链接" : "示例"), link?.inputText || "", item.sourceUrl];
     }), headers.decisions.length);
     styleCandidateDecisions(decisionSheet, headers.decisions, decisionPlaces.length);
     formatCandidateColumns(decisionSheet, headers.decisions, decisionPlaces.length);
-    [20, 10, 16, 24, 18, 16, 30, 24, 24, 24, 13, 28, 12, 10, 10, 10, 12, 10, 28, 22, 12, 38, 36]
+    [20, 12, 12, 10, 16, 24, 18, 16, 30, 24, 24, 24, 13, 28, 12, 10, 10, 10, 12, 10, 28, 22, 12, 38, 36]
       .forEach((width, index) => { decisionSheet.getColumn(index + 1).width = width; });
     decisionSheet.views = [{ showGridLines: false, state: "frozen", xSplit: 6, ySplit: 3 }];
 
     const linkSheet = ensureSheet(workbook, "投递汇总", headers.links);
-    replaceRows(linkSheet, state.links.map((item) => [item.id, item.sourceType || "链接", item.createdAt, item.submitter, item.inputText || item.url, item.title, item.url, item.category, item.subCategory || "等待识别", item.readStatus, item.organizedStatus, item.status, item.factsFound.join("；"), item.missingFields.join("；"), item.summary, item.model, item.error || "", item.note]), headers.links.length);
+    replaceRows(linkSheet, state.links.map((item) => [item.id, item.sourceType || "链接", item.createdAt, item.submitter, item.inputText || item.url, item.title, item.url, item.category, item.subCategory || "等待识别", item.readStatus, item.organizedStatus, item.status, item.candidateCount || 0, item.factsFound.join("；"), item.missingFields.join("；"), item.summary, item.model, item.error || "", item.note]), headers.links.length);
 
     const reportSheet = ensureSheet(workbook, "处理报告", headers.report);
-    replaceRows(reportSheet, state.links.map((item) => [item.id, item.sourceType || "链接", item.submitter, item.title || (item.sourceType === "文字" ? "需求名称待生成" : "标题未读取"), item.inputText || "", item.category, item.subCategory || "等待识别", item.readStatus, item.organizedStatus, item.resultNote, item.factsFound.join("；"), item.missingFields.join("；"), item.error || "", item.url, item.updatedAt]), headers.report.length);
+    replaceRows(reportSheet, state.links.map((item) => [item.id, item.sourceType || "链接", item.submitter, item.title || (item.sourceType === "文字" ? "需求名称待生成" : "标题未读取"), item.inputText || "", item.category, item.subCategory || "等待识别", item.readStatus, item.organizedStatus, item.candidateCount || 0, item.resultNote, item.factsFound.join("；"), item.missingFields.join("；"), item.error || "", item.url, item.updatedAt]), headers.report.length);
 
-    const stays = state.places.filter((item) => item.category === "住宿");
+    const requirements = state.places.filter((item) => item.candidateType === "requirement");
+    const requirementSheet = ensureSheet(workbook, "团队需求", headers.requirements);
+    replaceRows(requirementSheet, requirements.map((item) => {
+      const link = state.links.find((candidate) => candidate.id === item.sourceId);
+      return [item.id, item.name, item.category, item.subCategory, item.featureTags.join("；"), item.area, placePriceSummary(item), item.duration, item.summary || link?.summary || "", (item.factsFound || link?.factsFound || []).join("；"), (item.missingFields || link?.missingFields || []).join("；"), link?.submitter || "团队成员", link?.inputText || "", link?.resultNote || "", item.decisionStatus || "待比较", item.selected ? "是" : "否", item.manualNote || ""];
+    }), headers.requirements.length);
+    styleEditableFields(requirementSheet, headers.requirements, requirements.length, ["需求名称", "大类", "子分类", "偏好标签", "目标区域", "预算", "期望时长", "需求摘要", "已表达条件", "仍需匹配"]);
+    formatCandidateColumns(requirementSheet, headers.requirements, requirements.length);
+
+    const realPlaces = state.places.filter((item) => item.candidateType === "place");
+    const stays = realPlaces.filter((item) => item.category === "住宿");
     const staySheet = ensureSheet(workbook, "住宿候选", headers.stays);
     replaceRows(staySheet, stays.map((item) => {
       const d = item.details;
@@ -1384,10 +1725,9 @@ async function syncToExcel(state) {
       return [item.id, item.name, item.subCategory, item.featureTags.join("；"), item.area, d.address, d.locationHighlights, d.distanceToCore, item.price, d.twoNightTotal, d.extraFees, d.deposit, d.capacity, d.roomType, d.rooms, d.beds, d.bedTypes, d.bathrooms, d.environment, d.entireRental, d.kitchen, d.barbecue, d.bbqEquipment, d.breakfast, d.parking, d.transport, d.checkIn, d.checkOut, d.cancellationPolicy, d.reservation, d.bookingStatus, item.pros.join("；"), item.cons.join("；"), item.score, quality.ratio, missing, d.evidence, ...placeVoteColumns(item), item.decisionStatus || "待比较", item.selected ? "是" : "否", item.manualNote || "", manualOverrideSummary(item), link?.sourceType || (item.sourceId ? "链接" : "示例"), link?.inputText || "", item.sourceUrl, item.dataStatus];
     }), headers.stays.length);
     styleEditableFields(staySheet, headers.stays, stays.length, ["名称", "子分类", "特征标签", "区域", "详细地址", "每晚价格", "两晚总价", "适合人数", "户型", "房间", "床位", "床型", "卫浴", "能否烧烤", "烧烤设备/费用", "取消政策"]);
-    styleCandidateDecisions(staySheet, headers.stays, stays.length);
     formatCandidateColumns(staySheet, headers.stays, stays.length);
 
-    const food = state.places.filter((item) => item.category === "餐饮");
+    const food = realPlaces.filter((item) => item.category === "餐饮");
     const foodSheet = ensureSheet(workbook, "美食餐饮", headers.food);
     replaceRows(foodSheet, food.map((item) => {
       const link = state.links.find((candidate) => candidate.id === item.sourceId);
@@ -1397,10 +1737,9 @@ async function syncToExcel(state) {
       return [item.id, item.name, item.subCategory, item.featureTags.join("；"), d.usage, item.area, d.address, item.price, d.sixPersonTotal, d.signatureDishes, d.privateRoom, d.groupSuitability, d.queueInfo, d.openingHours, d.reservation, d.cancellationPolicy, d.parking, d.environment, d.bookingStatus, item.pros.join("；"), item.cons.join("；"), item.score, quality.ratio, missing, d.evidence, ...placeVoteColumns(item), item.decisionStatus || "待比较", item.selected ? "是" : "否", item.manualNote || "", manualOverrideSummary(item), link?.sourceType || (item.sourceId ? "链接" : "示例"), link?.inputText || "", item.sourceUrl, item.dataStatus];
     }), headers.food.length);
     styleEditableFields(foodSheet, headers.food, food.length, ["名称", "子分类", "特征标签", "适合安排", "区域", "详细地址", "人均价格", "团队预计总价", "招牌菜", "包间", "团队适合度", "排队情况", "营业时间", "预约要求"]);
-    styleCandidateDecisions(foodSheet, headers.food, food.length);
     formatCandidateColumns(foodSheet, headers.food, food.length);
 
-    const escapes = state.places.filter((item) => item.category === "密室");
+    const escapes = realPlaces.filter((item) => item.category === "密室");
     const escapeSheet = ensureSheet(workbook, "密室候选", headers.escapes);
     replaceRows(escapeSheet, escapes.map((item) => {
       const link = state.links.find((candidate) => candidate.id === item.sourceId);
@@ -1410,10 +1749,9 @@ async function syncToExcel(state) {
       return [item.id, item.name, d.themeName, item.subCategory, item.featureTags.join("；"), item.area, d.address, item.price, d.sixPersonTotal, d.horrorLevel, d.difficulty, d.escapeStyle, d.venueSize, d.roomCount, d.capacity, d.minPlayers, d.maxPlayers, d.sixPersonSession, item.duration, d.npcInteraction, d.physicalIntensity, d.costume, d.openingHours, d.reservation, d.cancellationPolicy, d.parking, d.bookingStatus, item.pros.join("；"), item.cons.join("；"), item.score, quality.ratio, missing, d.evidence, ...placeVoteColumns(item), item.decisionStatus || "待比较", item.selected ? "是" : "否", item.manualNote || "", manualOverrideSummary(item), link?.sourceType || (item.sourceId ? "链接" : "示例"), link?.inputText || "", item.sourceUrl, item.dataStatus];
     }), headers.escapes.length);
     styleEditableFields(escapeSheet, headers.escapes, escapes.length, ["名称", "主题名称", "子分类", "特征标签", "区域", "详细地址", "单人价格", "团队预计总价", "恐怖程度", "难度", "玩法类型", "场地规模", "房间数量", "推荐人数", "团队独立开场", "时长", "NPC/真人互动"]);
-    styleCandidateDecisions(escapeSheet, headers.escapes, escapes.length);
     formatCandidateColumns(escapeSheet, headers.escapes, escapes.length);
 
-    const leisure = state.places.filter((item) => item.category === "休闲娱乐");
+    const leisure = realPlaces.filter((item) => item.category === "休闲娱乐");
     const leisureSheet = ensureSheet(workbook, "室内休闲", headers.leisure);
     replaceRows(leisureSheet, leisure.map((item) => {
       const link = state.links.find((candidate) => candidate.id === item.sourceId);
@@ -1423,10 +1761,9 @@ async function syncToExcel(state) {
       return [item.id, item.name, item.subCategory, item.featureTags.join("；"), item.area, d.address, item.price, d.sixPersonTotal, d.leisureFacilities, d.packageInfo, d.openingHours, d.overnight, d.includedMeals, d.restArea, d.privateRoom, d.genderArrangement, d.capacity, d.serviceRestrictions, d.environment, d.parking, d.reservation, d.cancellationPolicy, d.bookingStatus, item.pros.join("；"), item.cons.join("；"), item.score, quality.ratio, missing, d.evidence, ...placeVoteColumns(item), item.decisionStatus || "待比较", item.selected ? "是" : "否", item.manualNote || "", manualOverrideSummary(item), link?.sourceType || (item.sourceId ? "链接" : "示例"), link?.inputText || "", item.sourceUrl, item.dataStatus];
     }), headers.leisure.length);
     styleEditableFields(leisureSheet, headers.leisure, leisure.length, ["名称", "子分类", "特征标签", "区域", "详细地址", "人均/套餐价格", "团队预计总价", "包含设施", "套餐内容", "营业时间", "能否过夜", "是否含餐", "休息区域", "独立房间", "男女分区", "适合人数", "使用限制"]);
-    styleCandidateDecisions(leisureSheet, headers.leisure, leisure.length);
     formatCandidateColumns(leisureSheet, headers.leisure, leisure.length);
 
-    const attractions = state.places.filter((item) => item.category === "景点");
+    const attractions = realPlaces.filter((item) => item.category === "景点");
     const attractionSheet = ensureSheet(workbook, "景点户外", headers.attractions);
     replaceRows(attractionSheet, attractions.map((item) => {
       const link = state.links.find((candidate) => candidate.id === item.sourceId);
@@ -1436,18 +1773,17 @@ async function syncToExcel(state) {
       return [item.id, item.name, item.subCategory, item.featureTags.join("；"), item.area, d.address, item.price, d.ticketInfo, d.openingHours, d.recommendedDuration || item.duration, d.indoorOutdoor, d.weatherImpact, d.reservation, d.cancellationPolicy, d.parking, d.bookingStatus, item.pros.join("；"), item.cons.join("；"), item.score, quality.ratio, missing, d.evidence, ...placeVoteColumns(item), item.decisionStatus || "待比较", item.selected ? "是" : "否", item.manualNote || "", manualOverrideSummary(item), link?.sourceType || (item.sourceId ? "链接" : "示例"), link?.inputText || "", item.sourceUrl, item.dataStatus];
     }), headers.attractions.length);
     styleEditableFields(attractionSheet, headers.attractions, attractions.length, ["名称", "子分类", "特征标签", "区域", "详细地址", "票价", "票价说明", "营业时间", "建议时长", "室内/室外", "天气影响", "预约要求"]);
-    styleCandidateDecisions(attractionSheet, headers.attractions, attractions.length);
     formatCandidateColumns(attractionSheet, headers.attractions, attractions.length);
 
-    const guides = state.places.filter((item) => item.category === "攻略");
+    const guides = state.places.filter((item) => item.candidateType === "guide");
     const guideSheet = ensureSheet(workbook, "攻略文章", headers.guides);
     replaceRows(guideSheet, guides.map((item) => {
       const link = state.links.find((candidate) => candidate.id === item.sourceId);
       const quality = candidateQuality(item, link);
-      return [item.id, item.name, item.subCategory, item.featureTags.join("；"), item.area, link?.summary || item.pros.join("；"), item.cons.join("；"), link?.factsFound?.join("；") || "", link?.missingFields?.join("；") || quality.missing.join("；"), quality.ratio, item.details.evidence, ...placeVoteColumns(item), item.decisionStatus || "待比较", item.selected ? "是" : "否", item.manualNote || "", manualOverrideSummary(item), link?.sourceType || (item.sourceId ? "链接" : "示例"), link?.inputText || "", item.sourceUrl, item.dataStatus];
+      return [item.id, item.name, item.subCategory, item.featureTags.join("；"), item.area, item.summary || link?.summary || item.pros.join("；"), item.cons.join("；"), item.factsFound?.join("；") || link?.factsFound?.join("；") || "", item.missingFields?.join("；") || link?.missingFields?.join("；") || quality.missing.join("；"), quality.ratio, item.details.evidence, ...placeVoteColumns(item), item.decisionStatus || "待比较", item.selected ? "是" : "否", item.manualNote || "", manualOverrideSummary(item), link?.sourceType || (item.sourceId ? "链接" : "示例"), link?.inputText || "", item.sourceUrl, item.dataStatus];
     }), headers.guides.length);
+    styleEditableFields(guideSheet, headers.guides, guides.length, ["标题", "子分类", "特征标签", "涉及区域", "AI摘要", "避坑信息", "证据摘要"]);
     styleEditableFields(guideSheet, headers.guides, guides.length, ["标题", "子分类", "特征标签", "涉及区域"]);
-    styleCandidateDecisions(guideSheet, headers.guides, guides.length);
     formatCandidateColumns(guideSheet, headers.guides, guides.length);
 
     const itinerarySheet = ensureSheet(workbook, "两日行程", headers.itinerary);
@@ -1486,9 +1822,10 @@ async function syncToExcel(state) {
       ["已收集投递", state.links.length, `链接 ${state.links.filter((item) => item.sourceType !== "文字").length} · 文字 ${state.links.filter((item) => item.sourceType === "文字").length}`],
       ["已整理投递", completedLinks, "已形成候选资料并写入分类表"],
       ["未整理投递", unorganizedLinks, "请在处理报告查看原因并补充信息"],
-      ["候选资料", state.places.length, "含住宿、活动、餐饮、景点和攻略"],
-      ["分类明细", supportedCategories.map((category) => `${category} ${state.places.filter((item) => item.category === category).length}`).join(" · "), "查看对应分类工作表"],
-      ["已入选候选", state.places.filter((item) => item.selected).length, "用于当前行程草案"],
+      ["候选资料", state.places.length, `真实候选 ${state.places.filter((item) => item.candidateType === "place").length} · 团队需求 ${state.places.filter((item) => item.candidateType === "requirement").length} · 攻略 ${state.places.filter((item) => item.candidateType === "guide").length}`],
+      ["分类明细", supportedCategories.map((category) => `${category} ${state.places.filter((item) => item.category === category && item.candidateType !== "requirement").length}`).join(" · "), "团队诉求请查看“团队需求”工作表"],
+      ["已入选地点", state.places.filter((item) => item.candidateType === "place" && item.selected).length, "真实地点，可用于当前行程草案"],
+      ["已采纳需求 / 攻略", state.places.filter((item) => item.candidateType !== "place" && item.selected).length, "筛选条件或来源线索，不会自动写入行程"],
       ["待确认预订", state.reservations.filter((item) => !/已完成|已预订/.test(item.status)).length, "付款前由团队最终确认"],
       ["当前重点", "补充真实民宿、两顿早餐和密室资料", "可投递链接，也可直接写文字诉求"],
     ], headers.overview.length);
@@ -1497,6 +1834,7 @@ async function syncToExcel(state) {
       sheet.pageSetup = { ...(sheet.pageSetup || {}), orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.25, right: 0.25, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 } };
       sheet.headerFooter = { ...(sheet.headerFooter || {}), oddFooter: `&L${state.project.destination}出行共创&R第 &P / &N 页` };
     }
+    state.settings.workbookPath = path.relative(rootDir, workbookPath);
     state.settings.lastExcelSync = new Date().toISOString();
     await writeState(state);
     const temporary = `${workbookPath}.tmp.xlsx`;
@@ -1694,9 +2032,6 @@ async function importFromExcel() {
         priceLabel: Number.isFinite(nextPrice) ? `参考 ¥${nextPrice}` : current.priceLabel,
         duration: editedDuration,
         score: Number(value(row, map, "推荐分")) || current.score,
-        selected: String(value(row, map, "是否入选")).trim() === "是",
-        decisionStatus: String(value(row, map, "人工结论") || current.decisionStatus || "待比较"),
-        manualNote: String(value(row, map, "人工备注") || ""),
         pros: editedPros,
         cons: editedCons,
         dataStatus: String(value(row, map, "数据状态") || current.dataStatus),
@@ -1721,19 +2056,69 @@ async function importFromExcel() {
       const editedArea = String(value(row, map, "涉及区域") || current.area).trim();
       const editedSubCategory = String(value(row, map, "子分类") || current.subCategory).trim();
       const editedFeatureTags = String(value(row, map, "特征标签") || current.featureTags.join("；")).split(/[；;]/).map((item) => item.trim()).filter(Boolean);
+      const editedSummary = String(value(row, map, "AI摘要") || current.summary || "").trim();
+      const editedCons = String(value(row, map, "避坑信息") || current.cons.join("；")).split(/[；;]/).map((item) => item.trim()).filter(Boolean);
+      const editedEvidence = String(value(row, map, "证据摘要") || current.details?.evidence || "").trim();
       rememberManualOverride(manualOverrides, "name", editedName, current.name);
       rememberManualOverride(manualOverrides, "area", editedArea, current.area);
       rememberManualOverride(manualOverrides, "subCategory", editedSubCategory, current.subCategory);
       rememberManualOverride(manualOverrides, "featureTags", editedFeatureTags, current.featureTags);
+      rememberManualOverride(manualOverrides, "summary", editedSummary, current.summary);
+      rememberManualOverride(manualOverrides, "cons", editedCons, current.cons);
+      rememberManualOverride(manualOverrides, "details.evidence", editedEvidence, current.details?.evidence);
       state.places[index] = {
         ...current,
         name: editedName,
         area: editedArea,
         subCategory: editedSubCategory,
         featureTags: editedFeatureTags,
-        selected: String(value(row, map, "是否入选")).trim() === "是",
-        decisionStatus: String(value(row, map, "人工结论") || current.decisionStatus || "待比较"),
-        manualNote: String(value(row, map, "人工备注") || ""),
+        summary: editedSummary,
+        cons: editedCons,
+        details: { ...current.details, evidence: editedEvidence || current.details?.evidence || "待核实" },
+        manualOverrides,
+      };
+    });
+  }
+
+  const requirementSheet = workbook.getWorksheet("团队需求");
+  if (requirementSheet) {
+    const map = headerIndex(requirementSheet);
+    requirementSheet.eachRow((row, number) => {
+      if (number < 4) return;
+      const id = String(value(row, map, "ID") || "").trim();
+      if (!id) return;
+      const index = state.places.findIndex((item) => item.id === id && item.candidateType === "requirement");
+      if (index < 0) return;
+      const current = state.places[index];
+      const manualOverrides = { ...(current.manualOverrides || {}) };
+      const editedName = String(value(row, map, "需求名称") || current.name).trim();
+      const editedCategory = normalizeCategory(value(row, map, "大类") || current.category, editedName);
+      const editedSubCategory = String(value(row, map, "子分类") || current.subCategory).trim();
+      const editedFeatureTags = String(value(row, map, "偏好标签") || current.featureTags.join("；")).split(/[；;]/).map((item) => item.trim()).filter(Boolean);
+      const editedArea = String(value(row, map, "目标区域") || current.area).trim();
+      const editedPriceLabel = String(value(row, map, "预算") || current.priceLabel).trim();
+      const editedDuration = String(value(row, map, "期望时长") || current.duration).trim();
+      const editedSummary = String(value(row, map, "需求摘要") || current.summary || "").trim();
+      const editedFacts = String(value(row, map, "已表达条件") || (current.factsFound || []).join("；")).split(/[；;]/).map((item) => item.trim()).filter(Boolean);
+      const editedMissing = String(value(row, map, "仍需匹配") || (current.missingFields || []).join("；")).split(/[；;]/).map((item) => item.trim()).filter(Boolean);
+      for (const [key, edited, previous] of [
+        ["name", editedName, current.name], ["category", editedCategory, current.category], ["subCategory", editedSubCategory, current.subCategory],
+        ["featureTags", editedFeatureTags, current.featureTags], ["area", editedArea, current.area], ["priceLabel", editedPriceLabel, current.priceLabel],
+        ["duration", editedDuration, current.duration], ["summary", editedSummary, current.summary], ["factsFound", editedFacts, current.factsFound],
+        ["missingFields", editedMissing, current.missingFields],
+      ]) rememberManualOverride(manualOverrides, key, edited, previous);
+      state.places[index] = {
+        ...current,
+        name: editedName,
+        category: editedCategory,
+        subCategory: validSubCategory(editedCategory, editedSubCategory) ? editedSubCategory : inferSubCategory(`${editedName} ${editedSubCategory}`, editedCategory),
+        featureTags: editedFeatureTags,
+        area: editedArea,
+        priceLabel: editedPriceLabel,
+        duration: editedDuration,
+        summary: editedSummary,
+        factsFound: editedFacts,
+        missingFields: editedMissing,
         manualOverrides,
       };
     });
@@ -1748,12 +2133,19 @@ async function importFromExcel() {
       if (!id) return;
       const index = state.places.findIndex((item) => item.id === id);
       if (index < 0) return;
-      const decisionStatus = String(value(row, map, "人工结论") || state.places[index].decisionStatus || "待比较").trim();
+      const current = state.places[index];
+      const decisionStatus = map.has("人工结论") ? String(value(row, map, "人工结论") || current.decisionStatus || "待比较").trim() : current.decisionStatus;
+      const verificationStatus = map.has("核实状态") ? String(value(row, map, "核实状态") || current.verificationStatus || "待核实").trim() : current.verificationStatus;
+      const normalizedVerification = normalizeVerificationStatus(verificationStatus, current.candidateType, current.dataStatus);
+      const manualOverrides = { ...(current.manualOverrides || {}) };
+      if (map.has("核实状态")) rememberManualOverride(manualOverrides, "verificationStatus", normalizedVerification, current.verificationStatus);
       state.places[index] = {
-        ...state.places[index],
-        decisionStatus: ["待比较", "备选", "拟定", "淘汰"].includes(decisionStatus) ? decisionStatus : "待比较",
-        selected: String(value(row, map, "是否入选")).trim() === "是",
-        manualNote: String(value(row, map, "人工备注") || ""),
+        ...current,
+        decisionStatus: ["待比较", "备选", "拟定", "淘汰"].includes(decisionStatus) ? decisionStatus : current.decisionStatus || "待比较",
+        verificationStatus: normalizedVerification,
+        selected: map.has("是否入选") ? String(value(row, map, "是否入选")).trim() === "是" : current.selected,
+        manualNote: map.has("人工备注") ? String(value(row, map, "人工备注") || "") : current.manualNote,
+        manualOverrides,
       };
     });
   }
@@ -1812,17 +2204,151 @@ async function importFromExcel() {
   await syncToExcel(state);
 }
 
-async function stateForClient() {
+function sanitizeCandidatePatch(input, current) {
+  const body = input && typeof input === "object" ? input : {};
+  const next = { ...current, details: { ...defaultDetails, ...(current.details || {}) } };
+  const manualOverrides = { ...(current.manualOverrides || {}) };
+  const textFields = {
+    name: 160, area: 200, priceLabel: 120, duration: 120, summary: 1_000,
+    dataStatus: 200, decisionStatus: 40, manualNote: 1_000,
+  };
+  for (const [key, maximum] of Object.entries(textFields)) {
+    if (!Object.prototype.hasOwnProperty.call(body, key)) continue;
+    const edited = limitedText(body[key], "", maximum);
+    if (key === "decisionStatus" && !["待比较", "备选", "拟定", "淘汰"].includes(edited)) continue;
+    rememberManualOverride(manualOverrides, key, edited, current[key]);
+    next[key] = edited;
+  }
+  for (const key of ["featureTags", "tags", "pros", "cons", "factsFound", "missingFields"]) {
+    if (!Object.prototype.hasOwnProperty.call(body, key)) continue;
+    const maximum = ["pros", "cons"].includes(key) ? 4 : 12;
+    const edited = stringList(body[key]).map((item) => limitedText(item, "", 160)).slice(0, maximum);
+    rememberManualOverride(manualOverrides, key, edited, current[key]);
+    next[key] = edited;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "category")) {
+    const editedCategory = normalizeCategory(body.category, next.name);
+    rememberManualOverride(manualOverrides, "category", editedCategory, current.category);
+    next.category = editedCategory;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "candidateType")) {
+    const editedType = current.candidateType === "requirement"
+      ? "requirement"
+      : normalizeCandidateType(body.candidateType, { category: next.category, dataStatus: next.dataStatus });
+    rememberManualOverride(manualOverrides, "candidateType", editedType, current.candidateType);
+    next.candidateType = editedType;
+  }
+  if (next.candidateType !== "requirement" && next.category === "攻略") next.candidateType = "guide";
+  if (next.candidateType === "guide") next.category = "攻略";
+  if (Object.prototype.hasOwnProperty.call(body, "subCategory")) {
+    const proposed = limitedText(body.subCategory, "", 80);
+    const editedSubCategory = validSubCategory(next.category, proposed) ? proposed : inferSubCategory(`${next.name} ${proposed}`, next.category);
+    rememberManualOverride(manualOverrides, "subCategory", editedSubCategory, current.subCategory);
+    next.subCategory = editedSubCategory;
+  } else if (!validSubCategory(next.category, next.subCategory)) {
+    next.subCategory = inferSubCategory(next.name, next.category);
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "price")) {
+    const numeric = body.price === null || body.price === "" ? null : Number(body.price);
+    if (numeric === null || (Number.isFinite(numeric) && numeric >= 0 && numeric <= 1_000_000)) {
+      rememberManualOverride(manualOverrides, "price", numeric, current.price);
+      next.price = numeric;
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "score")) {
+    const editedScore = Math.max(0, Math.min(5, Number(body.score) || 0));
+    rememberManualOverride(manualOverrides, "score", editedScore, current.score);
+    next.score = editedScore;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "selected")) next.selected = Boolean(body.selected);
+  if (Object.prototype.hasOwnProperty.call(body, "sourceUrl")) {
+    const editedUrl = safeWebUrl(body.sourceUrl);
+    rememberManualOverride(manualOverrides, "sourceUrl", editedUrl, current.sourceUrl);
+    next.sourceUrl = editedUrl;
+  }
+  if (body.details && typeof body.details === "object" && !Array.isArray(body.details)) {
+    for (const key of Object.keys(defaultDetails)) {
+      if (!Object.prototype.hasOwnProperty.call(body.details, key)) continue;
+      const edited = limitedText(body.details[key], "", 500);
+      rememberManualOverride(manualOverrides, `details.${key}`, edited, current.details?.[key]);
+      next.details[key] = edited || defaultDetails[key];
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "verificationStatus")) {
+    const editedVerification = normalizeVerificationStatus(body.verificationStatus, next.candidateType, next.dataStatus);
+    rememberManualOverride(manualOverrides, "verificationStatus", editedVerification, current.verificationStatus);
+    next.verificationStatus = editedVerification;
+  } else {
+    next.verificationStatus = normalizeVerificationStatus(current.verificationStatus, next.candidateType, next.dataStatus);
+  }
+  next.manualOverrides = manualOverrides;
+  return next;
+}
+
+function adoptCandidateIntoState(state, candidate, input = {}) {
+  if (candidate.candidateType !== "place") throw new Error("只有真实候选可以加入最终方案；团队需求和攻略需先匹配具体地点");
+  const details = { ...defaultDetails, ...(candidate.details || {}) };
+  candidate.selected = true;
+  candidate.decisionStatus = "拟定";
+  if (candidate.category === "住宿") {
+    const roomParts = [details.roomType, details.rooms, details.beds, details.bedTypes].filter(hasUsefulFact);
+    state.finalPlan = sanitizeFinalPlan({
+      ...state.finalPlan,
+      stay: {
+        ...state.finalPlan.stay,
+        name: candidate.name,
+        address: hasUsefulFact(details.address) ? details.address : candidate.area,
+        capacity: details.capacity,
+        roomsBeds: roomParts.length ? roomParts.join("；") : "待确认",
+        twoNightTotal: hasUsefulFact(details.twoNightTotal) ? details.twoNightTotal : candidate.priceLabel,
+        checkInOut: [details.checkIn, details.checkOut].filter(hasUsefulFact).join(" · ") || "待确认",
+        barbecue: details.barbecue,
+        bbqEquipment: details.bbqEquipment,
+        breakfast: details.breakfast,
+        sourceUrl: candidate.sourceUrl,
+      },
+    }, state.finalPlan);
+    return { target: "stay" };
+  }
+  const rawDay = limitedText(input.day, "", 20);
+  if (!rawDay || !/周五|星期五|周六|星期六|周日|星期日|周天/.test(rawDay)) {
+    throw new Error("加入行程时请指定 day：周五晚上、周六或周日");
+  }
+  const day = normalizePlanDay(rawDay);
+  const itineraryItem = {
+    day,
+    time: limitedText(input.time, "待安排", 30),
+    endTime: limitedText(input.endTime, "待安排", 30),
+    category: candidate.category,
+    title: candidate.name,
+    subtitle: limitedText(input.subtitle, candidate.summary || candidate.pros?.[0] || "", 800),
+    address: hasUsefulFact(details.address) ? details.address : candidate.area,
+    transport: limitedText(input.transport, "待补充", 300),
+    cost: boundedCost(Object.prototype.hasOwnProperty.call(input, "cost") ? input.cost : candidate.price),
+    bookingStatus: details.bookingStatus || "待确认",
+    sourceUrl: candidate.sourceUrl,
+    note: limitedText(input.note, candidate.cons?.[0] || "", 500),
+    sourceId: candidate.id,
+  };
+  const itinerary = (state.finalPlan.itinerary || []).filter((item) => item.sourceId !== candidate.id);
+  const insertionPoint = itinerary.reduce((last, item, index) => normalizePlanDay(item.day) === day ? index + 1 : last, itinerary.length);
+  itinerary.splice(insertionPoint, 0, itineraryItem);
+  state.finalPlan = sanitizeFinalPlan({ ...state.finalPlan, itinerary }, state.finalPlan);
+  return { target: "itinerary", day };
+}
+
+async function stateForClient(request) {
   const state = await readState();
   state.settings.provider = providerLabel();
   state.settings.workbookPath = path.relative(rootDir, workbookPath);
+  state.capabilities = { canManage: isLocalManagerRequest(request) };
   state.places = state.places.map((place) => {
     const link = state.links.find((candidate) => candidate.id === place.sourceId);
     const quality = candidateQuality(place, link);
     return {
       ...place,
       completeness: quality.percent,
-      keyMissing: [...new Set([...(link?.missingFields || []), ...quality.missing])],
+      keyMissing: [...new Set([...(place.missingFields || link?.missingFields || []), ...quality.missing])],
     };
   });
   return state;
@@ -1857,30 +2383,59 @@ async function proxyToUi(request, response, url) {
   return response.end(bytes);
 }
 
-const server = http.createServer(async (request, response) => {
-  const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
-  if (request.method === "OPTIONS") return sendJson(response, 204, {});
-  try {
+function createTravelServer(accessMode) {
+  return http.createServer((request, response) => {
+    Object.defineProperty(request, accessModeSymbol, { value: accessMode });
+    const handle = async () => {
+      const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
+      if (!isAllowedBrowserOrigin(request)) return sendJson(response, 403, { error: "请从当前出行共创页面完成操作" });
+      if (request.method === "OPTIONS") return sendJson(response, 204, {});
+      try {
     if (!(await authorizePublicRequest(request, response, url))) return;
     if (request.method === "GET" && url.pathname === "/api/health") {
       return sendJson(response, 200, { ok: true, provider: providerLabel(), workbook: path.relative(rootDir, workbookPath), now: new Date().toISOString() });
     }
     if (request.method === "GET" && url.pathname === "/api/state") {
-      return sendJson(response, 200, await stateForClient());
+      return sendJson(response, 200, await stateForClient(request));
     }
     if (request.method === "POST" && url.pathname === "/api/final-plan") {
+      if (!requireManagement(request, response)) return;
       const body = await readBody(request);
       const state = await readState();
       const baseUpdatedAt = limitedText(body.baseUpdatedAt, "", 80);
       if (baseUpdatedAt && baseUpdatedAt !== state.finalPlan.updatedAt) {
         return sendJson(response, 409, {
           error: "这份方案刚刚被其他人或 Excel 更新过。请刷新后再编辑，避免覆盖最新内容。",
-          state: await stateForClient(),
+          state: await stateForClient(request),
         });
       }
       state.finalPlan = sanitizeFinalPlan(body.finalPlan, state.finalPlan);
       await syncToExcel(state);
-      return sendJson(response, 200, { ok: true, state: await stateForClient() });
+      return sendJson(response, 200, { ok: true, state: await stateForClient(request) });
+    }
+    const adoptMatch = url.pathname.match(/^\/api\/places\/([^/]+)\/adopt$/);
+    if (request.method === "POST" && adoptMatch) {
+      if (!requireManagement(request, response)) return;
+      const id = decodeURIComponent(adoptMatch[1]);
+      const body = await readBody(request);
+      const state = await readState();
+      const candidate = state.places.find((item) => item.id === id);
+      if (!candidate) return sendJson(response, 404, { error: "候选项目不存在" });
+      const adopted = adoptCandidateIntoState(state, candidate, body);
+      await syncToExcel(state);
+      return sendJson(response, 200, { ok: true, ...adopted, state: await stateForClient(request) });
+    }
+    const candidateMatch = url.pathname.match(/^\/api\/places\/([^/]+)$/);
+    if (request.method === "PATCH" && candidateMatch) {
+      if (!requireManagement(request, response)) return;
+      const id = decodeURIComponent(candidateMatch[1]);
+      const body = await readBody(request);
+      const state = await readState();
+      const index = state.places.findIndex((item) => item.id === id);
+      if (index < 0) return sendJson(response, 404, { error: "候选项目不存在" });
+      state.places[index] = sanitizeCandidatePatch(body, state.places[index]);
+      await syncToExcel(state);
+      return sendJson(response, 200, { ok: true, state: await stateForClient(request) });
     }
     const voteMatch = url.pathname.match(/^\/api\/places\/([^/]+)\/vote$/);
     if (request.method === "POST" && voteMatch) {
@@ -1902,9 +2457,10 @@ const server = http.createServer(async (request, response) => {
         votes,
       };
       await syncToExcel(state);
-      return sendJson(response, 200, { ok: true, removed, state: await stateForClient() });
+      return sendJson(response, 200, { ok: true, removed, state: await stateForClient(request) });
     }
     if (request.method === "GET" && url.pathname === "/api/download/excel") {
+      if (!requireManagement(request, response)) return;
       const bytes = await fs.readFile(workbookPath);
       response.writeHead(200, {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1950,6 +2506,7 @@ const server = http.createServer(async (request, response) => {
           status: "等待处理",
           readStatus: "等待读取",
           organizedStatus: "整理中",
+          candidateCount: 0,
           factsFound: [],
           missingFields: [],
           resultNote: "已进入后台处理队列",
@@ -1982,6 +2539,7 @@ const server = http.createServer(async (request, response) => {
           status: "等待处理",
           readStatus: "文字已接收",
           organizedStatus: "整理中",
+          candidateCount: 0,
           factsFound: [],
           missingFields: [],
           resultNote: "已进入 DeepSeek 整理队列",
@@ -1996,16 +2554,65 @@ const server = http.createServer(async (request, response) => {
         created.push(id);
         textCreated += 1;
       }
+      if (!created.length) {
+        const error = invalid
+          ? "没有可接收的公网链接或有效文字；本机、局域网和非 http(s) 地址不会读取"
+          : "这些内容已经投递过了，不需要重复提交";
+        return sendJson(response, invalid ? 400 : 409, { error, created: 0, linkCreated, textCreated, duplicates, invalid, ids: [] });
+      }
       await writeState(state);
       await syncToExcel(state);
       created.forEach((id, index) => setTimeout(() => enqueueLink(id), 250 + index * 80));
       return sendJson(response, 202, { created: created.length, linkCreated, textCreated, duplicates, invalid, ids: created });
     }
+    const editLinkMatch = url.pathname.match(/^\/api\/links\/([^/]+)$/);
+    if (request.method === "PATCH" && editLinkMatch) {
+      if (!requireManagement(request, response)) return;
+      const id = decodeURIComponent(editLinkMatch[1]);
+      const body = await readBody(request);
+      const state = await readState();
+      const index = state.links.findIndex((item) => item.id === id);
+      if (index < 0) return sendJson(response, 404, { error: "投递记录不存在" });
+      const current = state.links[index];
+      if (["等待处理", "正在读取", "AI分析中"].includes(current.status)) {
+        return sendJson(response, 409, { error: "这条投递正在处理，完成后再修改，避免覆盖新结果" });
+      }
+      const patch = {};
+      for (const [key, maximum] of Object.entries({ title: 160, note: 300, submitter: 40 })) {
+        if (Object.prototype.hasOwnProperty.call(body, key)) patch[key] = limitedText(body[key], "", maximum);
+      }
+      if (Object.prototype.hasOwnProperty.call(body, "category")) {
+        patch.category = body.category === "自动识别" ? "自动识别" : normalizeCategory(body.category, current.title);
+      }
+      if (Object.prototype.hasOwnProperty.call(body, "subCategory")) {
+        const effectiveCategory = patch.category || current.category;
+        const proposed = limitedText(body.subCategory, "", 80);
+        patch.subCategory = effectiveCategory === "自动识别"
+          ? proposed || "等待识别"
+          : validSubCategory(effectiveCategory, proposed) ? proposed : inferSubCategory(`${current.title} ${proposed}`, effectiveCategory);
+      }
+      if (Object.prototype.hasOwnProperty.call(body, "inputText") && current.sourceType === "文字") {
+        patch.inputText = limitedText(body.inputText, "", 4_000);
+        if (patch.inputText.length < 3) return sendJson(response, 400, { error: "文字内容至少需要 3 个字" });
+      }
+      if (Object.prototype.hasOwnProperty.call(body, "url") && current.sourceType !== "文字") {
+        try { patch.url = cleanUrl(body.url); } catch { return sendJson(response, 400, { error: "链接格式不正确" }); }
+      }
+      if (body.reprocess === true) Object.assign(patch, { status: "等待处理", organizedStatus: "整理中", resultNote: "已重新加入后台处理队列", error: "" });
+      state.links[index] = { ...current, ...patch, updatedAt: new Date().toISOString() };
+      await syncToExcel(state);
+      if (body.reprocess === true) setTimeout(() => enqueueLink(id), 200);
+      return sendJson(response, body.reprocess === true ? 202 : 200, { ok: true, state: await stateForClient(request) });
+    }
     const retryMatch = url.pathname.match(/^\/api\/links\/([^/]+)\/retry$/);
     if (request.method === "POST" && retryMatch) {
+      if (!requireManagement(request, response)) return;
       const id = decodeURIComponent(retryMatch[1]);
       const state = await readState();
-      const isText = state.links.find((item) => item.id === id)?.sourceType === "文字";
+      const existing = state.links.find((item) => item.id === id);
+      if (!existing) return sendJson(response, 404, { error: "投递记录不存在，无法重新处理" });
+      if (["正在读取", "AI分析中"].includes(existing.status)) return sendJson(response, 409, { error: "这条投递正在处理中，请稍后再试" });
+      const isText = existing.sourceType === "文字";
       await updateLink(id, { status: "等待处理", readStatus: isText ? "文字已接收" : "等待读取", organizedStatus: "整理中", resultNote: "已重新加入后台处理队列", error: "" });
       await syncToExcel(await readState());
       setTimeout(() => enqueueLink(id), 200);
@@ -2013,44 +2620,94 @@ const server = http.createServer(async (request, response) => {
     }
     const deleteMatch = url.pathname.match(/^\/api\/links\/([^/]+)$/);
     if (request.method === "DELETE" && deleteMatch) {
+      if (!requireManagement(request, response)) return;
       const id = decodeURIComponent(deleteMatch[1]);
       const state = await readState();
+      const link = state.links.find((item) => item.id === id);
+      if (!link) return sendJson(response, 404, { error: "投递记录不存在" });
+      if (["等待处理", "正在读取", "AI分析中"].includes(link.status)) {
+        return sendJson(response, 409, { error: "这条投递正在处理，完成前不能删除" });
+      }
+      const linkedCandidates = state.places.filter((item) => item.sourceId === id);
+      const itinerarySourceIds = new Set((state.finalPlan?.itinerary || []).map((item) => item.sourceId).filter(Boolean));
+      const protectedCandidates = linkedCandidates.filter((item) => hasProtectedHumanState(item) || itinerarySourceIds.has(item.id));
+      if (protectedCandidates.length) {
+        return sendJson(response, 409, {
+          error: `这条投递还有 ${protectedCandidates.length} 个已入选、已投票或人工修改的结果。请先在候选与最终方案中处理后再删除。`,
+        });
+      }
       state.links = state.links.filter((item) => item.id !== id);
       state.places = state.places.filter((item) => item.sourceId !== id);
       await writeState(state);
       await syncToExcel(state);
-      return sendJson(response, 200, { ok: true });
+      return sendJson(response, 200, { ok: true, state: await stateForClient(request) });
     }
     if (request.method === "POST" && url.pathname === "/api/sync/from-excel") {
+      if (!requireManagement(request, response)) return;
       await importFromExcel();
-      return sendJson(response, 200, { ok: true, state: await stateForClient() });
+      return sendJson(response, 200, { ok: true, state: await stateForClient(request) });
     }
     if (request.method === "POST" && url.pathname === "/api/sync/to-excel") {
+      if (!requireManagement(request, response)) return;
       const state = await readState();
       await syncToExcel(state);
-      return sendJson(response, 200, { ok: true, state: await stateForClient() });
+      return sendJson(response, 200, { ok: true, state: await stateForClient(request) });
     }
     if (!url.pathname.startsWith("/api/")) return proxyToUi(request, response, url);
     return sendJson(response, 404, { error: "接口不存在" });
-  } catch (error) {
-    return sendJson(response, 500, { error: error instanceof Error ? error.message : "服务器错误" });
-  }
-});
-
-server.listen(port, host, () => {
-  console.log(`Travel Co-creation API: http://localhost:${port}`);
-});
-
-try { lastKnownWorkbookMtime = (await fs.stat(workbookPath)).mtimeMs; } catch { lastKnownWorkbookMtime = 0; }
-setInterval(async () => {
-  if (writeInProgress) return;
-  try {
-    const mtime = (await fs.stat(workbookPath)).mtimeMs;
-    if (lastKnownWorkbookMtime && mtime > lastKnownWorkbookMtime + 100) await importFromExcel();
-    else if (!lastKnownWorkbookMtime) lastKnownWorkbookMtime = mtime;
-  } catch { /* The workbook is generated during setup. */ }
-}, 4_000).unref();
-
-for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.on(signal, () => server.close(() => process.exit(0)));
+      } catch (error) {
+        return sendJson(response, 500, { error: error instanceof Error ? error.message : "服务器错误" });
+      }
+    };
+    const isMutation = ["POST", "PATCH", "DELETE"].includes(request.method || "") && /^\/api\//.test(request.url || "");
+    if (isMutation) void serializeMutation(handle).catch((error) => {
+      if (!response.headersSent) sendJson(response, 500, { error: error instanceof Error ? error.message : "服务器错误" });
+    });
+    else void handle();
+  });
 }
+
+const localServer = createTravelServer("local");
+const publicServer = createTravelServer("public");
+
+if (!/^(1|true|yes)$/i.test(process.env.TEST_SKIP_LISTEN || "")) {
+  localServer.listen(localPort, localHost, () => {
+    console.log(`Travel Co-creation local manager: http://localhost:${localPort}`);
+  });
+  publicServer.listen(publicPort, publicHost, () => {
+    console.log(`Travel Co-creation public gateway: http://${publicHost}:${publicPort}`);
+  });
+
+  try { lastKnownWorkbookMtime = (await fs.stat(workbookPath)).mtimeMs; } catch { lastKnownWorkbookMtime = 0; }
+  setInterval(async () => {
+    if (writeInProgress) return;
+    try {
+      const mtime = (await fs.stat(workbookPath)).mtimeMs;
+      if (lastKnownWorkbookMtime && mtime > lastKnownWorkbookMtime + 100) await serializeMutation(() => importFromExcel());
+      else if (!lastKnownWorkbookMtime) lastKnownWorkbookMtime = mtime;
+    } catch { /* The workbook is generated during setup. */ }
+  }, 4_000).unref();
+
+  for (const signal of ["SIGINT", "SIGTERM"]) {
+    process.on(signal, () => {
+      let pending = 2;
+      const done = () => {
+        pending -= 1;
+        if (pending === 0) process.exit(0);
+      };
+      localServer.close(done);
+      publicServer.close(done);
+    });
+  }
+}
+
+export {
+  adoptCandidateIntoState,
+  cleanUrl,
+  dedupeAnalysisCandidates,
+  isBlockedNetworkAddress,
+  isLocalManagerRequest,
+  normalizeAnalysisCandidates,
+  normalizeCandidateType,
+  sanitizeCandidatePatch,
+};

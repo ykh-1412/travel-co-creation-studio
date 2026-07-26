@@ -43,7 +43,8 @@
       "summary": "团队希望找扬州市区的中恐密室，难度中等，有NPC互动，单人预算200元以内，周日上午可预约，适合6人。",
       "model": "DeepSeek · deepseek-v4-flash",
       "error": "",
-      "subCategory": "恐怖密室"
+      "subCategory": "恐怖密室",
+      "candidateCount": 1
     },
     {
       "id": "link-0c57f71b3b10",
@@ -71,7 +72,8 @@
       "resultNote": "已生成候选资料并写入 Excel",
       "subCategory": "美食攻略",
       "sourceType": "链接",
-      "inputText": ""
+      "inputText": "",
+      "candidateCount": 1
     },
     {
       "id": "link-df4b1ba42b06",
@@ -101,7 +103,8 @@
       "resultNote": "已整理；仍有 3 项待核实",
       "subCategory": "综合攻略",
       "sourceType": "链接",
-      "inputText": ""
+      "inputText": "",
+      "candidateCount": 1
     },
     {
       "id": "seed-guide-001",
@@ -128,7 +131,8 @@
       "resultNote": "已生成候选资料并写入 Excel",
       "subCategory": "行程攻略",
       "sourceType": "链接",
-      "inputText": ""
+      "inputText": "",
+      "candidateCount": 8
     }
   ],
   "places": [
@@ -233,7 +237,9 @@
         "weatherImpact": "待核实",
         "ticketInfo": "待核实",
         "recommendedDuration": "待核实"
-      }
+      },
+      "candidateType": "requirement",
+      "verificationStatus": "团队诉求"
     },
     {
       "id": "place-3380833f-f6d0-41eb-9718-7edde5088a6d",
@@ -329,7 +335,9 @@
       "featureTags": [
         "攻略"
       ],
-      "manualOverrides": {}
+      "manualOverrides": {},
+      "candidateType": "guide",
+      "verificationStatus": "待核实"
     },
     {
       "id": "place-b34f514c-cc18-49a3-873b-8651853e07b9",
@@ -425,7 +433,9 @@
       "featureTags": [
         "攻略"
       ],
-      "manualOverrides": {}
+      "manualOverrides": {},
+      "candidateType": "guide",
+      "verificationStatus": "部分核实"
     },
     {
       "id": "place-001",
@@ -518,7 +528,9 @@
       "featureTags": [
         "景点"
       ],
-      "manualOverrides": {}
+      "manualOverrides": {},
+      "candidateType": "place",
+      "verificationStatus": "待核实"
     },
     {
       "id": "place-002",
@@ -611,7 +623,9 @@
       "featureTags": [
         "景点"
       ],
-      "manualOverrides": {}
+      "manualOverrides": {},
+      "candidateType": "place",
+      "verificationStatus": "待核实"
     },
     {
       "id": "place-003",
@@ -704,7 +718,9 @@
       "featureTags": [
         "景点"
       ],
-      "manualOverrides": {}
+      "manualOverrides": {},
+      "candidateType": "place",
+      "verificationStatus": "待核实"
     },
     {
       "id": "place-004",
@@ -799,7 +815,9 @@
         "室内",
         "需要预约"
       ],
-      "manualOverrides": {}
+      "manualOverrides": {},
+      "candidateType": "place",
+      "verificationStatus": "待核实"
     },
     {
       "id": "place-005",
@@ -892,7 +910,9 @@
       "featureTags": [
         "住宿"
       ],
-      "manualOverrides": {}
+      "manualOverrides": {},
+      "candidateType": "requirement",
+      "verificationStatus": "团队诉求"
     },
     {
       "id": "place-006",
@@ -986,7 +1006,9 @@
         "餐饮",
         "早茶早餐"
       ],
-      "manualOverrides": {}
+      "manualOverrides": {},
+      "candidateType": "requirement",
+      "verificationStatus": "团队诉求"
     },
     {
       "id": "place-007",
@@ -1080,7 +1102,9 @@
         "密室",
         "需要预约"
       ],
-      "manualOverrides": {}
+      "manualOverrides": {},
+      "candidateType": "requirement",
+      "verificationStatus": "团队诉求"
     },
     {
       "id": "place-008",
@@ -1173,7 +1197,9 @@
       "featureTags": [
         "攻略"
       ],
-      "manualOverrides": {}
+      "manualOverrides": {},
+      "candidateType": "guide",
+      "verificationStatus": "待核实"
     }
   ],
   "itinerary": {
@@ -1329,8 +1355,8 @@
   },
   "settings": {
     "provider": "DeepSeek · deepseek-v4-flash",
-    "workbookPath": "outputs/019f7eda-a998-7660-a73d-e43b3af67965/扬州团队旅行攻略.xlsx",
-    "lastExcelSync": "2026-07-24T02:46:12.304Z"
+    "workbookPath": "outputs/019f7eda-a998-7660-a73d-e43b3af67965/出行共创项目.xlsx",
+    "lastExcelSync": "2026-07-26T04:36:08.579Z"
   },
   "tripProfile": {
     "planVersion": "weekend-v2",
@@ -1660,6 +1686,6 @@
         "note": "以官方开放时间和预约规则为准"
       }
     ],
-    "updatedAt": "2026-07-24T02:36:30.361Z"
+    "updatedAt": "2026-07-26T00:16:00.132Z"
   }
 }
