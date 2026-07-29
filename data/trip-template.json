@@ -91,7 +91,7 @@
   "tripProfile": {
     "planVersion": "weekend-v2",
     "dates": "待团队确认",
-    "schedule": "周五晚抵达 · 周日傍晚返程",
+    "schedule": "3 天 2 晚 · 抵达与返程时间待确认",
     "groupSize": 6,
     "nights": 2,
     "stayPreference": "环境舒适、位置合适、满足团队人数",
@@ -140,7 +140,7 @@
     "title": "我的出行共创项目",
     "destination": "待确定目的地",
     "dates": "待团队确认",
-    "schedule": "周五晚抵达 · 周日傍晚返程",
+    "schedule": "3 天 2 晚 · 抵达与返程时间待确认",
     "people": 6,
     "nights": 2,
     "perPersonBudget": "待团队确认",

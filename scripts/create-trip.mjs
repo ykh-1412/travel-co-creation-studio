@@ -89,9 +89,9 @@ template.finalPlan = {
 };
 template.itinerary.day0[0].title = `抵达${destination} · 集合`;
 template.finalPlan.itinerary = [
-  ...template.itinerary.day0.map((item) => ({ day: "周五晚上", sourceUrl: "", ...item })),
-  ...template.itinerary.day1.map((item) => ({ day: "周六", sourceUrl: "", ...item })),
-  ...template.itinerary.day2.map((item) => ({ day: "周日", sourceUrl: "", ...item })),
+  ...template.itinerary.day0.map((item) => ({ day: "第1天", sourceUrl: "", ...item })),
+  ...template.itinerary.day1.map((item) => ({ day: "第2天", sourceUrl: "", ...item })),
+  ...template.itinerary.day2.map((item) => ({ day: "第3天", sourceUrl: "", ...item })),
 ];
 template.finalPlan.reservations = template.reservations.map((item) => ({ ...item }));
 

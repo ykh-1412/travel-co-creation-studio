@@ -14,21 +14,23 @@ async function render() {
   );
 }
 
-test("server renders the reusable travel co-creation workspace", async () => {
+test("server renders the Jeju travel co-creation workspace", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>出行共创台 · 把大家的想法整理成一份行程<\/title>/);
-  assert.match(html, /团队最终行程/);
-  assert.match(html, /投递链接或想法/);
-  assert.match(html, /住宿与待确认事项/);
-  assert.match(html, /主电脑修改 Excel 后，这里会自动刷新/);
+  assert.match(html, /<title>济州岛旅行共创台 · 六个人一起完成三日计划<\/title>/);
+  assert.match(html, /JEJU,/);
+  assert.match(html, /TOGETHER\./);
+  assert.match(html, /OUR JEJU NOTE/);
+  assert.match(html, /分享一个济州想法/);
+  assert.match(html, /先把住哪里定下来/);
+  assert.match(html, /三天，把海岸和小城慢慢走完/);
   assert.match(html, /已确定/);
   assert.match(html, /待补充/);
-  assert.match(html, /投递想法/);
-  assert.match(html, /候选与需求/);
+  assert.match(html, /投递 ADD/);
+  assert.match(html, /候选 PICK/);
   assert.doesNotMatch(html, /主电脑管理|下载 Excel 副本|读取主电脑原文件/);
   assert.doesNotMatch(html, /Your site is taking shape|react-loading-skeleton/);
 });
@@ -39,7 +41,7 @@ test("local data and the generated workbook are present", async () => {
     readFile(new URL("../data/trip-template.json", import.meta.url), "utf8"),
     readFile(
       new URL(
-        "../outputs/019f7eda-a998-7660-a73d-e43b3af67965/出行共创项目.xlsx",
+        "../outputs/019fa660-42f1-74a1-ab98-31c99abb6300/韩国济州岛旅行共创.xlsx",
         import.meta.url,
       ),
     ),
@@ -47,8 +49,14 @@ test("local data and the generated workbook are present", async () => {
   const state = JSON.parse(stateText);
   const template = JSON.parse(templateText);
 
-  assert.equal(state.project.destination, "扬州");
-  assert.equal(state.project.days, 2);
+  assert.equal(state.project.destination, "韩国济州岛");
+  assert.equal(state.project.days, 3);
+  assert.equal(state.project.people, 6);
+  assert.equal(state.finalPlan.perPersonBudget, "¥1,000–1,500 / 人（不含往返济州机票）");
+  assert.match(state.finalPlan.summary, /正餐约 ¥100\/人/);
+  assert.match(state.finalPlan.summary, /公交优先/);
+  assert.ok(state.finalPlan.itinerary.some((item) => item.title === "济州市区出发 · 东线公交"));
+  assert.ok(state.finalPlan.itinerary.every((item) => item.title !== "济州市区出发 · 东线包车"));
   assert.ok(state.places.length >= 1);
   assert.ok(state.places.every((place) => ["住宿", "餐饮", "密室", "休闲娱乐", "景点", "攻略"].includes(place.category)));
   assert.ok(state.places.every((place) => typeof place.subCategory === "string" && place.subCategory.length > 0));
