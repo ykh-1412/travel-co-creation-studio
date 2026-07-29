@@ -317,6 +317,14 @@ test("public listener is read-only even when Host is forged as localhost", { tim
     assert.equal(JSON.parse(publicStateResponse.text).capabilities.canManage, false);
 
     const pristineState = await readFile(path.join(fixtureRoot, "store.json"), "utf8");
+    const unnamedSubmission = await requestServer(publicPort, "/api/submissions", {
+      method: "POST",
+      headers: publicHeaders,
+      body: { text: "想吃济州黑猪烤肉", submitter: "" },
+    });
+    assert.equal(unnamedSubmission.status, 400, unnamedSubmission.text);
+    assert.match(unnamedSubmission.text, /请先填写团队昵称/);
+
     const privateLinkSubmission = await requestServer(publicPort, "/api/submissions", {
       method: "POST",
       headers: publicHeaders,

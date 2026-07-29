@@ -35,6 +35,14 @@ test("server renders the Jeju travel co-creation workspace", async () => {
   assert.doesNotMatch(html, /Your site is taking shape|react-loading-skeleton/);
 });
 
+test("团队昵称默认留空，投递和投票都明确标记必填", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /useState\("团队成员"\)/);
+  assert.match(source, /你的昵称（必填）/);
+  assert.match(source, /我的昵称（必填）/);
+  assert.match(source, /方便大家区分是谁提交的/);
+});
+
 test("local data and the generated workbook are present", async () => {
   const [stateText, templateText, workbook] = await Promise.all([
     readFile(new URL("../data/store.json", import.meta.url), "utf8"),
