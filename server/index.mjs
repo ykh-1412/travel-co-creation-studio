@@ -37,6 +37,7 @@ const workbookPath = path.join(outputDir, workbookFileName);
 const templateDataFile = path.join(rootDir, "data", "trip-template.json");
 const localPort = Number(process.env.API_PORT || 8787);
 const publicPort = Number(process.env.PUBLIC_API_PORT || localPort + 1);
+const uiPort = Number(process.env.UI_PORT || 3100);
 const localHost = process.env.API_HOST || "127.0.0.1";
 const publicHost = process.env.PUBLIC_API_HOST || "127.0.0.1";
 const accessModeSymbol = Symbol("travel-access-mode");
@@ -169,59 +170,62 @@ function inferFeatureTags(text, category) {
 }
 
 const defaultTripProfile = {
-  planVersion: "weekend-v2",
+  planVersion: "three-day-v1",
   dates: "待团队确认",
-  schedule: "周五晚抵达 · 周日傍晚返程",
+  schedule: "3 天 2 晚 · 国际航班直达济州",
   groupSize: 6,
   nights: 2,
-  stayPreference: "环境好、整租优先、至少 3 个独立睡眠空间",
-  barbecue: "周六晚在民宿烧烤",
-  breakfasts: ["周六早茶", "周日早餐"],
-  activity: "6 人密室 / 团队活动",
+  stayPreference: "济州市区交通方便、环境舒适，适合 6 人入住",
+  barbecue: "待团队确认",
+  breakfasts: ["第 2 天早餐待选", "第 3 天早餐待选"],
+  activity: "东线自然景观、海岸步道与济州美食",
   accommodationBudget: "待团队确认",
 };
 
 const defaultReservations = [
-  { id: "reserve-stay", item: "6 人住宿（周五、周六两晚）", type: "住宿", targetTime: "周五入住，周日退房", status: "待补充真实链接", owner: "待认领", deadline: "日期确认后立即", note: "整租优先；核对 3 个睡眠空间、两晚总价与取消政策" },
-  { id: "reserve-bbq", item: "周六晚民宿烧烤", type: "餐饮", targetTime: "周六 18:30", status: "待确认", owner: "待认领", deadline: "订房前", note: "确认能否烧烤、设备、食材和清洁费用" },
-  { id: "reserve-breakfast-1", item: "周六早茶", type: "早餐", targetTime: "周六 08:00", status: "待补充餐厅链接", owner: "待认领", deadline: "出发前 7 天", note: "6 人同桌；核对是否可预约及排队时间" },
-  { id: "reserve-breakfast-2", item: "周日早餐", type: "早餐", targetTime: "周日 08:30", status: "待补充餐厅链接", owner: "待认领", deadline: "出发前 7 天", note: "优先选择民宿附近，避免影响退房" },
-  { id: "reserve-escape", item: "6 人密室 / 团队活动", type: "活动", targetTime: "周日 10:30", status: "待补充真实链接", owner: "待认领", deadline: "出发前 7 天", note: "核对主题、难度、恐怖程度、时长与取消政策" },
-  { id: "reserve-attraction", item: "景点 / 博物馆预约", type: "门票", targetTime: "周六至周日", status: "待确认", owner: "待认领", deadline: "开放预约后", note: "以官方开放时间和预约规则为准" },
+  { id: "reserve-dates-flight", item: "确定日期与国际直达济州往返航班", type: "机票", targetTime: "第 1 天抵达 · 第 3 天返程", status: "待确认", owner: "待认领", deadline: "优先完成", note: "不要购买经首尔转韩国国内线的方案；六人的去回航班与行李额需统一" },
+  { id: "reserve-entry", item: "逐人核对济州免签、K-ETA 与入境材料", type: "入境", targetTime: "订票前与出发前各核对一次", status: "待确认", owner: "待认领", deadline: "订票前", note: "向航司、韩国出入境 1345 或官方渠道确认最新要求；入境由边检最终判断" },
+  { id: "reserve-stay", item: "6 人济州市区住宿（2 晚）", type: "住宿", targetTime: "第 1 天入住 · 第 3 天退房", status: "待补充真实链接", owner: "待认领", deadline: "日期确认后立即", note: "比较房型、床型、含税总价、厨房、位置和取消政策" },
+  { id: "reserve-charter", item: "第 2 天东线公交 + 必要时短途拼车", type: "交通", targetTime: "第 2 天约 08:00–20:00", status: "待确认公交班次", owner: "待认领", deadline: "出发前 14 天", note: "先查 111/112 急行或 201 干线；接驳不便时再由六人分摊短途车费" },
+  { id: "reserve-food", item: "两顿特色正餐 + 民宿做饭 / 宵夜", type: "餐饮", targetTime: "第 1/2 天", status: "待补充真实链接", owner: "待认领", deadline: "住宿和公交路线确定后", note: "特色正餐按人均约 ¥100，早餐约 ¥20–30；其余可买菜做饭或吃简餐宵夜" },
+  { id: "reserve-attractions", item: "景点开放、天气与牛岛分支", type: "景点", targetTime: "第 2 天", status: "待确认", owner: "待认领", deadline: "出发前 3 天与当天早晨", note: "优先免费海岸、市场和步道；贵景点不强制保留" },
 ];
 
-const defaultFridayPlan = [
-  { time: "20:00", endTime: "21:00", title: "抵达扬州 · 集合", subtitle: "六人会合后前往住宿，晚到成员可直接在民宿集合。", transport: "车站 / 自驾点 → 民宿", cost: 30, category: "抵达", note: "按最终车次调整", address: "住宿地址待定", bookingStatus: "待确认", sourceId: "" },
-  { time: "21:00", endTime: "22:30", title: "入住两晚 · 夜宵碰头", subtitle: "核对房间分配、周六烧烤安排和次日集合时间。", transport: "民宿内", cost: 0, category: "住宿", note: "住宿尚未下单", address: "待补充真实民宿链接", bookingStatus: "未预订", sourceId: "place-005" },
+const defaultDay1Plan = [
+  { time: "14:00", endTime: "16:00", title: "国际航班直达济州 · 入境集合", subtitle: "六人按最终航班抵达济州国际机场，完成入境后前往济州市区住宿。", transport: "机场公交优先；晚到时分乘两辆出租车并由六人分摊", cost: 15, category: "抵达", note: "示意时段，必须按真实直达航班调整", address: "Jeju International Airport", bookingStatus: "待确认", sourceId: "guide-entry" },
+  { time: "16:30", endTime: "17:30", title: "入住济州市区两晚", subtitle: "优先选择机场和市区餐饮交通方便、适合 6 人连住且能简单做饭的酒店或公寓。", transport: "公交 / 步行优先", cost: 0, category: "住宿", note: "房型、含税总价与取消政策待确认", address: "济州市区待选", bookingStatus: "未预订", sourceId: "requirement-stay" },
+  { time: "18:00", endTime: "20:00", title: "东门传统市场 · 落地轻松逛吃", subtitle: "抵达日只安排市区活动，逛市场、吃小食并采购饮水零食。", transport: "公交 / 步行", cost: 30, category: "市场", note: "若航班晚到则直接取消", address: "济州市东门传统市场", bookingStatus: "无需预约", sourceId: "place-dongmun" },
+  { time: "20:00", endTime: "21:30", title: "黑猪烤肉晚餐", subtitle: "按人均约 ¥100 控制点单，也可以买菜回民宿做饭。", transport: "步行优先", cost: 100, category: "晚餐", note: "具体餐厅待团队投递", address: "济州市区待选", bookingStatus: "未预订", sourceId: "" },
 ];
 
-const defaultSaturdayPlan = [
-  { time: "08:00", endTime: "09:30", title: "周六早茶", subtitle: "六人同桌，用一壶茶和几笼点心正式打开周末。", transport: "从民宿步行 / 打车", cost: 80, category: "早餐", note: "门店和预约方式待选", address: "待补充餐厅链接", bookingStatus: "未预订", sourceId: "place-006" },
-  { time: "10:00", endTime: "13:00", title: "瘦西湖慢游", subtitle: "把扬州地标放在上午，按体力选择完整或精简路线。", transport: "约 10–20 分钟车程", cost: 0, category: "景点", note: "票价和开放时间待核实", address: "蜀冈—瘦西湖（详细入口待确认）", bookingStatus: "待确认", sourceId: "place-001" },
-  { time: "14:30", endTime: "17:00", title: "个园 · 东关街散步", subtitle: "园林、老城和采购一次串联，为晚上回民宿留足时间。", transport: "打车至老城后步行", cost: 0, category: "老城", note: "门票与动线待核实", address: "东关街历史文化街区", bookingStatus: "待确认", sourceId: "place-003" },
-  { time: "18:30", endTime: "21:30", title: "民宿烧烤夜", subtitle: "六人一起采购、烧烤和聊天，是本次行程的固定核心。", transport: "回民宿后不再移动", cost: 120, category: "聚餐", note: "订房前确认允许烧烤、设备和清洁费", address: "住宿地址待定", bookingStatus: "未预订", sourceId: "place-005" },
+const defaultDay2Plan = [
+  { time: "08:00", endTime: "09:30", title: "济州市区出发 · 东线公交", subtitle: "优先乘急行或干线公交前往城山，接驳不便时再短途拼车。", transport: "111/112 急行或 201 干线", cost: 35, category: "交通", note: "出发前核对当天班次和天气", address: "济州市区 → 城山邑", bookingStatus: "待确认", sourceId: "guide-transport" },
+  { time: "10:00", endTime: "12:00", title: "城山日出峰", subtitle: "选择免费海岸段或登顶路线，看火山地貌与海景。", transport: "公交到城山后步行", cost: 25, category: "自然景观", note: "贵或体力不合适就走免费段", address: "Seongsan Ilchulbong", bookingStatus: "出发前复核", sourceId: "place-seongsan" },
+  { time: "12:15", endTime: "13:30", title: "城山东线海鲜午餐", subtitle: "带鱼、海鲜或鲍鱼粥三选一，按人均约 ¥100 找公交站附近餐厅。", transport: "步行 / 短途公交", cost: 100, category: "午餐", note: "具体餐厅待团队投递", address: "城山邑待选", bookingStatus: "未预订", sourceId: "" },
+  { time: "14:00", endTime: "16:30", title: "涉地可支", subtitle: "沿东部海岸散步；如改去牛岛，当天不再硬塞这个景点。", transport: "公交 + 步行；必要时短途拼车", cost: 10, category: "海岸散步", note: "风大或雨天缩短", address: "Seopjikoji", bookingStatus: "出发前复核", sourceId: "place-seopjikoji" },
+  { time: "17:00", endTime: "20:00", title: "返回济州市区 · 自由晚餐", subtitle: "晚餐可买菜回民宿做饭，或六人一起吃简餐宵夜。", transport: "公交返回", cost: 70, category: "返程与晚餐", note: "不按正式聚餐上限计算", address: "济州市区待选", bookingStatus: "待确认", sourceId: "" },
 ];
 
-const defaultSundayPlan = [
-  { time: "08:30", endTime: "09:30", title: "周日早餐 · 整理退房", subtitle: "优先选择民宿附近，早餐后完成行李整理。", transport: "步行优先", cost: 40, category: "早餐", note: "门店待选", address: "民宿附近待定", bookingStatus: "未预订", sourceId: "" },
-  { time: "10:30", endTime: "12:30", title: "6 人密室 / 团队活动", subtitle: "主题以六人可玩、难度适中和交通顺路为优先。", transport: "携带行李打车 / 先寄存", cost: 150, category: "活动", note: "主题、恐怖程度和预约规则待补充", address: "扬州市区待定", bookingStatus: "未预订", sourceId: "place-007" },
-  { time: "13:00", endTime: "14:00", title: "淮扬菜午餐", subtitle: "根据密室位置选择顺路餐厅，控制用餐时间。", transport: "短途步行 / 打车", cost: 100, category: "餐饮", note: "餐厅待选", address: "待补充餐厅链接", bookingStatus: "未预订", sourceId: "" },
-  { time: "14:30", endTime: "17:00", title: "中国大运河博物馆", subtitle: "用室内展览收束扬州的古今线索，也作为雨天方案。", transport: "前往运河三湾", cost: 0, category: "博物馆", note: "必须核实预约与闭馆日", address: "运河三湾（入口待核实）", bookingStatus: "待确认", sourceId: "place-004" },
-  { time: "17:30", endTime: "19:00", title: "弹性返程", subtitle: "按六人的车次分批前往车站，预留行李和晚高峰时间。", transport: "打车 / 自驾返程", cost: 60, category: "返程", note: "按最终车次调整", address: "扬州东站 / 扬州站待定", bookingStatus: "待确认", sourceId: "" },
+const defaultDay3Plan = [
+  { time: "08:30", endTime: "09:30", title: "早餐 · 退房 · 行李安排", subtitle: "民宿简单做早餐或选附近小店，早餐后完成退房。", transport: "步行", cost: 25, category: "早餐", note: "住宿与航班确定后再选", address: "住宿附近待选", bookingStatus: "待确认", sourceId: "" },
+  { time: "10:00", endTime: "13:00", title: "涯月汉潭海岸散步路", subtitle: "海岸散步加咖啡，作为返程日前半天的轻量路线。", transport: "公交优先", cost: 20, category: "海岸与咖啡", note: "按返程航班和天气缩短或取消", address: "Aewol-eup, Jeju-si, Jeju", bookingStatus: "无需预约", sourceId: "place-aewol" },
+  { time: "13:00", endTime: "14:00", title: "涯月简餐或咖啡店午餐", subtitle: "不安排正式大餐，确保留足回机场和取行李时间。", transport: "步行", cost: 60, category: "午餐", note: "具体店铺待团队投递", address: "涯月邑待选", bookingStatus: "待确认", sourceId: "" },
+  { time: "14:30", endTime: "17:00", title: "前往济州国际机场 · 国际航班返程", subtitle: "按航司要求预留值机、行李和出境时间。", transport: "机场公交优先；时间紧时分乘两辆出租车", cost: 15, category: "返程", note: "必须按真实航班倒推", address: "Jeju International Airport", bookingStatus: "待确认", sourceId: "guide-entry" },
 ];
 
 function itineraryWithDay(itinerary) {
   return [
-    ...(itinerary.day0 || []).map((item) => ({ day: "周五晚上", sourceUrl: "", ...item })),
-    ...(itinerary.day1 || []).map((item) => ({ day: "周六", sourceUrl: "", ...item })),
-    ...(itinerary.day2 || []).map((item) => ({ day: "周日", sourceUrl: "", ...item })),
+    ...(itinerary.day0 || []).map((item) => ({ day: "第1天", sourceUrl: "", ...item })),
+    ...(itinerary.day1 || []).map((item) => ({ day: "第2天", sourceUrl: "", ...item })),
+    ...(itinerary.day2 || []).map((item) => ({ day: "第3天", sourceUrl: "", ...item })),
   ];
 }
 
 function splitFinalItinerary(items) {
   const result = { day0: [], day1: [], day2: [] };
   for (const item of Array.isArray(items) ? items : []) {
-    const key = String(item.day || "").includes("周五") ? "day0" : String(item.day || "").includes("周六") ? "day1" : "day2";
+    const label = String(item.day || "");
+    const key = /第\s*1\s*天|周五|Day\s*1/i.test(label) ? "day0" : /第\s*2\s*天|周六|Day\s*2/i.test(label) ? "day1" : "day2";
     const itineraryItem = { ...item };
     delete itineraryItem.day;
     delete itineraryItem.sourceUrl;
@@ -269,10 +273,10 @@ function boundedCost(value, fallback = 0) {
 }
 
 function normalizePlanDay(value) {
-  const day = limitedText(value, "周六", 20);
-  if (day.includes("周五") || day.includes("星期五")) return "周五晚上";
-  if (day.includes("周日") || day.includes("星期日") || day.includes("周天")) return "周日";
-  return "周六";
+  const day = limitedText(value, "第2天", 20);
+  if (/第\s*1\s*天|周五|星期五|Day\s*1/i.test(day)) return "第1天";
+  if (/第\s*3\s*天|周日|星期日|周天|Day\s*3/i.test(day)) return "第3天";
+  return "第2天";
 }
 
 function sanitizeFinalPlan(input, current) {
@@ -289,15 +293,15 @@ function sanitizeFinalPlan(input, current) {
     title: submittedText(source, "title", previous.title || "我的出行共创项目", 120, false),
     destination: submittedText(source, "destination", previous.destination || "待确定目的地", 80, false),
     dates: submittedText(source, "dates", previous.dates || "待团队确认", 120),
-    schedule: submittedText(source, "schedule", previous.schedule || "周五晚抵达 · 周日傍晚返程", 160),
-    people: boundedInteger(source.people, boundedInteger(previous.people, 6, 1, 50), 1, 50),
+    schedule: submittedText(source, "schedule", previous.schedule || "3 天 2 晚 · 国际航班直达济州", 160),
+    people: boundedInteger(source.people, boundedInteger(previous.people, 4, 1, 50), 1, 50),
     nights: boundedInteger(source.nights, boundedInteger(previous.nights, 2, 1, 30), 1, 30),
     perPersonBudget: submittedText(source, "perPersonBudget", previous.perPersonBudget || "待团队确认", 80),
     summary: submittedText(source, "summary", previous.summary || "", 1_000),
     stay: {
       name: submittedText(stay, "name", previousStay.name || "待选择真实民宿", 160),
       address: submittedText(stay, "address", previousStay.address || "待补充民宿详细地址", 300),
-      capacity: submittedText(stay, "capacity", previousStay.capacity || `目标 ${boundedInteger(source.people, boundedInteger(previous.people, 6, 1, 50), 1, 50)} 人`, 160),
+      capacity: submittedText(stay, "capacity", previousStay.capacity || `目标 ${boundedInteger(source.people, boundedInteger(previous.people, 4, 1, 50), 1, 50)} 人`, 160),
       roomsBeds: submittedText(stay, "roomsBeds", previousStay.roomsBeds || "待确认", 240),
       twoNightTotal: submittedText(stay, "twoNightTotal", previousStay.twoNightTotal || "待确认", 120),
       checkInOut: submittedText(stay, "checkInOut", previousStay.checkInOut || "待确认", 200),
@@ -368,11 +372,9 @@ function normalizeVerificationStatus(value, candidateType, dataStatus = "") {
 function normalizeState(raw) {
   const state = raw && typeof raw === "object" ? raw : {};
   const hasWeekendPlan = state.tripProfile?.planVersion === defaultTripProfile.planVersion;
-  state.project = { name: "我的出行共创项目", destination: "待确定目的地", days: 2, people: 6, budget: 6000, status: "方案共创中", tagline: "把分散的链接和想法，整理成大家都看得懂的出行方案。", ...(state.project || {}) };
-  if (state.project.name === "扬州两日慢游") state.project.name = "扬州周末共创攻略";
-  if (state.project.tagline === "一半烟火，一半园林。把散落的灵感，整理成一起出发的路线。") state.project.tagline = "周五晚集合，周末一起住、一起吃、一起玩。";
+  state.project = { name: "济州岛三日旅行共创", destination: "韩国济州岛", days: 3, people: 6, budget: 0, status: "方案共创中", tagline: "六个人一起把济州岛的链接和想法整理成可执行计划。", ...(state.project || {}) };
   state.project.people = boundedInteger(state.project.people, 6, 1, 50);
-  state.project.days = boundedInteger(state.project.days, 2, 1, 30);
+  state.project.days = boundedInteger(state.project.days, 3, 1, 30);
   state.tripProfile = { ...defaultTripProfile, ...(state.tripProfile || {}) };
   state.tripProfile.breakfasts = Array.isArray(state.tripProfile.breakfasts) ? state.tripProfile.breakfasts : defaultTripProfile.breakfasts;
   state.links = Array.isArray(state.links) ? state.links.map((item) => {
@@ -398,11 +400,7 @@ function normalizeState(raw) {
       resultNote: item.resultNote || (completed ? "已生成候选资料并写入 Excel" : item.error || "等待后台处理"),
     };
   }) : [];
-  const seedDetails = {
-    "place-005": { address: "东关街周边（具体门牌待真实链接）", capacity: "目标 6 人，实际容量待核实", rooms: "目标至少 3 个独立睡眠空间", beds: "床型与床数待核实", bathrooms: "待核实", twoNightTotal: "日期和房源确认后计算", environment: "环境好、安静、公共空间充足", entireRental: "整租优先，待核实", kitchen: "希望可用，待核实", barbecue: "必须确认允许，当前未知", bbqEquipment: "设备、炭火和清洁费待核实", breakfast: "不强求含早，周边早餐需方便", parking: "待核实", transport: "老城步行 / 打车便利优先", checkIn: "周五晚，具体时间待核实", checkOut: "周日，具体时间待核实", bookingStatus: "未预订", reservation: "等待团队提交真实民宿链接" },
-    "place-006": { address: "老城 / 瘦西湖周边待选", capacity: "6 人同桌", openingHours: "早餐时段待核实", reservation: "核对能否提前排号或预约", bookingStatus: "未预订", usage: "周六早茶" },
-    "place-007": { address: "扬州市区待选", capacity: "6 人", openingHours: "待核实", reservation: "通常需预约，具体规则待真实链接", bookingStatus: "未预订", difficulty: "中等优先", horrorLevel: "团队确认", usage: "周日上午团队活动" },
-  };
+  const seedDetails = {};
   state.places = Array.isArray(state.places) ? state.places.map((item) => {
     const sourceLink = state.links.find((link) => link.id === item.sourceId);
     const context = `${item.name || ""} ${(item.tags || []).join(" ")} ${item.details?.usage || ""}`;
@@ -415,8 +413,6 @@ function normalizeState(raw) {
       dataStatus: item.dataStatus,
     });
     const details = { ...defaultDetails, ...(seedDetails[item.id] || {}), ...(item.details || {}), address: item.details?.address || seedDetails[item.id]?.address || item.area || "待核实" };
-    if (item.id === "place-006") details.cuisineType = details.cuisineType === "待核实" ? "早茶早餐" : details.cuisineType;
-    if (item.id === "place-007") details.themeName = details.themeName === "待核实" ? "六人密室主题待选" : details.themeName;
     const subCategory = validSubCategory(category, item.subCategory) ? item.subCategory : inferSubCategory(context, category);
     const featureTags = Array.isArray(item.featureTags) && item.featureTags.includes(category) ? item.featureTags : inferFeatureTags(`${context} ${subCategory}`, category);
     return {
@@ -442,16 +438,18 @@ function normalizeState(raw) {
   }));
   state.itinerary = state.itinerary || {};
   if (!hasWeekendPlan) {
-    state.itinerary.day0 = defaultFridayPlan;
-    state.itinerary.day1 = defaultSaturdayPlan;
-    state.itinerary.day2 = defaultSundayPlan;
+    state.itinerary.day0 = defaultDay1Plan;
+    state.itinerary.day1 = defaultDay2Plan;
+    state.itinerary.day2 = defaultDay3Plan;
   }
-  state.itinerary.day0 = Array.isArray(state.itinerary.day0) && state.itinerary.day0.length ? state.itinerary.day0 : defaultFridayPlan;
+  state.itinerary.day0 = Array.isArray(state.itinerary.day0) && state.itinerary.day0.length ? state.itinerary.day0 : defaultDay1Plan;
+  state.itinerary.day1 = Array.isArray(state.itinerary.day1) && state.itinerary.day1.length ? state.itinerary.day1 : defaultDay2Plan;
+  state.itinerary.day2 = Array.isArray(state.itinerary.day2) && state.itinerary.day2.length ? state.itinerary.day2 : defaultDay3Plan;
   for (const day of ["day0", "day1", "day2"]) {
     state.itinerary[day] = (Array.isArray(state.itinerary[day]) ? state.itinerary[day] : []).map((item) => ({ address: "待确认", bookingStatus: "待确认", sourceId: "", ...item }));
   }
   state.reservations = Array.isArray(state.reservations) && state.reservations.length ? state.reservations : defaultReservations;
-  const defaultStay = state.places.find((item) => item.id === "place-005") || state.places.find((item) => item.category === "住宿") || {};
+  const defaultStay = state.places.find((item) => item.id === "requirement-stay") || state.places.find((item) => item.category === "住宿") || {};
   const defaultFinalPlan = {
     version: "excel-home-v1",
     title: `${state.project.people} 人${state.project.destination}出行共创`,
@@ -460,18 +458,18 @@ function normalizeState(raw) {
     schedule: state.tripProfile.schedule,
     people: state.tripProfile.groupSize,
     nights: state.tripProfile.nights,
-    perPersonBudget: "待团队确认",
-    summary: "周五晚抵达，周六早茶与园林、晚上民宿烧烤，周日安排早餐、密室和返程。",
+    perPersonBudget: "¥1,000–1,500 / 人（不含往返济州机票）",
+    summary: "国际航班直达济州，住济州市区两晚；餐饮按正餐约 ¥100/人并穿插民宿做饭，岛内公交优先、必要时短途拼车，贵景点可替换为免费海岸与步道。",
     stay: {
       name: "待选择真实民宿",
       address: "待补充民宿详细地址",
       capacity: `目标 ${state.project.people} 人，待房源确认`,
-      roomsBeds: "至少 3 个独立睡眠空间，床型待确认",
-      twoNightTotal: "待确认日期和房源后计算",
-      checkInOut: "周五晚上入住 · 周日退房",
-      barbecue: "待确认民宿允许周六晚烧烤",
-      bbqEquipment: "设备、食材和清洁费用待确认",
-      breakfast: "周六早茶、周日早餐；具体门店待选择",
+      roomsBeds: "优先整租 2–3 间卧室，并确认厨房可用",
+      twoNightTotal: "六人两晚约 ¥1,800–3,000（以日期和真实房源为准）",
+      checkInOut: "第 1 天入住 · 第 3 天退房",
+      barbecue: "非本次硬性条件，按团队投递再确认",
+      bbqEquipment: "如选择可烧烤住宿，再核对设备、食材和清洁费用",
+      breakfast: "两顿早餐具体门店待团队选择",
       sourceUrl: defaultStay.sourceUrl || "",
     },
     itinerary: itineraryWithDay(state.itinerary).map((item) => ({ ...item, sourceUrl: state.places.find((place) => place.id === item.sourceId)?.sourceUrl || item.sourceUrl || "" })),
@@ -556,7 +554,7 @@ function isAllowedBrowserOrigin(request) {
   }
   if (requestAccessMode(request) === "local") {
     return ["localhost", "127.0.0.1", "::1"].includes(origin.hostname)
-      && ["", "3000", String(localPort)].includes(origin.port);
+      && ["", String(uiPort), String(localPort)].includes(origin.port);
   }
   return origin.protocol === "https:"
     && origin.hostname.endsWith(".ts.net")
@@ -597,8 +595,8 @@ function sendPasswordPage(response, invalid = false) {
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>进入出行共创台</title>
 <style>
-*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:#f6f1e7;color:#173d3b;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif}body:before{content:"";position:fixed;inset:0;background:radial-gradient(circle at 15% 15%,rgba(15,105,99,.16),transparent 34%),radial-gradient(circle at 85% 85%,rgba(217,112,62,.15),transparent 32%);pointer-events:none}.card{position:relative;width:min(440px,100%);padding:38px;border:1px solid rgba(23,61,59,.16);border-radius:28px;background:rgba(255,252,246,.94);box-shadow:0 24px 70px rgba(23,61,59,.14)}.mark{display:grid;place-items:center;width:52px;height:52px;border-radius:16px;background:#0f6963;color:white;font:700 24px serif}.eyebrow{margin:28px 0 8px;color:#d9703e;font-size:12px;font-weight:800;letter-spacing:.18em}.card h1{margin:0;font:700 clamp(28px,7vw,38px)/1.15 Georgia,"Songti SC",serif}.intro{margin:14px 0 28px;color:#5e7471;line-height:1.7}label{display:block;margin-bottom:9px;font-size:13px;font-weight:800}input{width:100%;height:52px;padding:0 16px;border:1px solid #cfdad5;border-radius:14px;background:white;color:#173d3b;font-size:17px;outline:none}input:focus{border-color:#0f6963;box-shadow:0 0 0 4px rgba(15,105,99,.1)}button{width:100%;height:52px;margin-top:14px;border:0;border-radius:14px;background:#0f6963;color:white;font-size:16px;font-weight:800;cursor:pointer}button:hover{background:#0b5752}.error{margin:0 0 12px;padding:10px 12px;border-radius:12px;background:#f5dfcd;color:#8a3f20;font-size:13px}.note{margin:18px 0 0;color:#81908d;font-size:12px;text-align:center}
-</style></head><body><main class="card"><div class="mark">行</div><p class="eyebrow">TEAM TRIP · CO-CREATE</p><h1>朋友，输入密码<br>一起把行程定下来。</h1><p class="intro">这是团队内部的出行共创空间。只需要输入共享密码，不需要注册账号。</p>${error}<form method="post" action="/__team-login"><label for="password">团队访问密码</label><input id="password" name="password" type="password" autocomplete="current-password" required autofocus placeholder="请输入密码"><button type="submit">进入共创台</button></form><p class="note">密码由出行发起人提供</p></main></body></html>`;
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:#f5f6f3;color:#171717;font-family:Pretendard,"Apple SD Gothic Neo","Noto Sans KR","PingFang SC",sans-serif}body:before{content:"JEJU";position:fixed;left:-2vw;bottom:-7vw;color:#ff5a36;font-size:min(31vw,420px);font-weight:950;letter-spacing:-.09em;line-height:.8;opacity:.12;pointer-events:none}.card{position:relative;width:min(470px,100%);padding:42px;border:2px solid #171717;border-radius:30px;background:#fff;box-shadow:16px 16px 0 #2f62ff}.card:before{content:"";position:absolute;top:0;left:42px;right:42px;height:7px;background:linear-gradient(90deg,#ff5a36 0 25%,#ffc928 25% 50%,#2f62ff 50% 75%,#ef77a9 75%)}.mark{display:grid;place-items:center;width:56px;height:56px;border-radius:50%;background:#ff5a36;color:#fff;font-size:27px;font-weight:900}.eyebrow{margin:28px 0 10px;color:#2f62ff;font-size:11px;font-weight:900;letter-spacing:.2em}.card h1{margin:0;font-size:clamp(32px,8vw,45px);font-weight:950;line-height:1.08;letter-spacing:-.055em}.intro{margin:17px 0 30px;color:#656565;line-height:1.75;font-size:14px}label{display:block;margin-bottom:9px;font-size:12px;font-weight:850}input{width:100%;height:54px;padding:0 17px;border:1.5px solid #c8c8c8;border-radius:14px;background:#f8f8f6;color:#171717;font-size:17px;outline:none}input:focus{border-color:#2f62ff;box-shadow:0 0 0 4px rgba(47,98,255,.12)}button{width:100%;height:54px;margin-top:14px;border:2px solid #171717;border-radius:14px;background:#171717;color:#fff;font-size:15px;font-weight:900;cursor:pointer;box-shadow:5px 5px 0 #ff5a36}button:hover{transform:translate(-1px,-1px);box-shadow:7px 7px 0 #ff5a36}.error{margin:0 0 12px;padding:11px 13px;border-radius:12px;background:#fff0e9;color:#c43e20;font-size:13px}.note{margin:20px 0 0;color:#8a8a8a;font-size:11px;text-align:center}@media(max-width:520px){.card{padding:34px 24px;box-shadow:9px 9px 0 #2f62ff}.card:before{left:24px;right:24px}}
+</style></head><body><main class="card"><div class="mark">ㅈ</div><p class="eyebrow">JEJU · 같이 가요</p><h1>JEJU,<br>TOGETHER.</h1><p class="intro">我们的济州岛旅行共创空间。输入团队共享密码，一起投递种草、比较候选、把三天行程定下来。</p>${error}<form method="post" action="/__team-login"><label for="password">团队访问密码</label><input id="password" name="password" type="password" autocomplete="current-password" required autofocus placeholder="请输入密码"><button type="submit">进入济州共创台 →</button></form><p class="note">06 FRIENDS · 03 DAYS · ONE JEJU NOTE</p></main></body></html>`;
   response.writeHead(invalid ? 401 : 200, {
     "Content-Type": "text/html; charset=utf-8",
     "Cache-Control": "no-store",
@@ -793,7 +791,7 @@ const categoryFieldInstructions = {
 
 function systemPromptFor(category, sourceType = "链接", trip = {}) {
   const destination = String(trip.project?.destination || trip.finalPlan?.destination || "待确定目的地");
-  const people = boundedInteger(trip.tripProfile?.groupSize || trip.project?.people || trip.finalPlan?.people, 6, 1, 50);
+  const people = boundedInteger(trip.tripProfile?.groupSize || trip.project?.people || trip.finalPlan?.people, 4, 1, 50);
   const schedule = String(trip.tripProfile?.schedule || trip.finalPlan?.schedule || "日期与行程待确认");
   const stayPreference = String(trip.tripProfile?.stayPreference || "住宿条件待团队确认");
   const activity = String(trip.tripProfile?.activity || "团队活动待确认");
@@ -802,7 +800,7 @@ function systemPromptFor(category, sourceType = "链接", trip = {}) {
     : "本次输入是网页链接。先判断它是单一商户/地点页面，还是攻略、榜单、合集。单一商户只返回一个 candidateType=place；攻略、榜单、合集要把正文中每个名称明确的商户、住宿、景点或活动拆成独立的 candidateType=place 候选，不能把十家店合成一张卡。若正文只是泛泛攻略、没有足够信息形成具体地点，则返回一个 candidateType=guide 的文章候选。只根据网页正文提取事实，无法读取或正文未写明的内容必须标为待核实。";
   return `你是“出行共创台”的旅行资料整理助手。本次目的地是“${destination}”，同行 ${people} 人，行程结构是“${schedule}”，住宿偏好是“${stayPreference}”，团队活动偏好是“${activity}”。你的任务是把团队投递整理成可在 Excel 横向比较的数据。${sourceRule}输出严格 JSON，不得猜测或编造。
 顶层必须是对象并包含 candidates 数组；数组每项必须包含：candidateType(place|requirement|guide), name, category, subCategory, featureTags(string数组), area, price(number或null), priceLabel, duration, summary, tags(string数组), pros(string数组), cons(string数组), score(0到5), dataStatus, verificationStatus(待核实|部分核实|已核实), factsFound(string数组), missingFields(string数组), details(object)。最多返回 20 个候选。另可在顶层提供 summary、factsFound、missingFields，概括整篇来源。
-category 只能是住宿、餐饮、密室、休闲娱乐、景点、攻略。当前预分类是“${category}”，只有正文明确证明分类错误时才调整。featureTags 可多选，例如烧烤、火锅、微恐、中恐、汗蒸、桑拿、洗浴、可过夜、适合6人。
+category 只能是住宿、餐饮、密室、休闲娱乐、景点、攻略。当前预分类是“${category}”，只有正文明确证明分类错误时才调整。featureTags 可多选，例如海景、黑猪烤肉、海鲜、咖啡、徒步、雨天备选、适合${people}人。
 所有类别都要提取具体地点、价格、营业或入住时间、预约/取消规则、适合人数、优缺点和证据。details.sixPersonTotal 与 details.sixPersonSession 是兼容旧数据的内部字段，分别表示当前 ${people} 人团队总价与当前团队能否独立成团。${categoryFieldInstructions[category] || categoryFieldInstructions.攻略}
 evidence 用简短文字概括输入中明确表达的事实或偏好，不编造引文。输入没有明确写出的字段写“待核实”，并放入 missingFields。无关字段可以省略，系统会自动补齐。`;
 }
@@ -894,7 +892,7 @@ async function modelAnalysis(content, fallback, category, sourceType = "链接",
 }
 
 function demoAnalysis(title, text, category, url, destination = "") {
-  const priceMatch = text.match(/(?:¥|￥|人均|价格)[^\d]{0,6}(\d{2,5})/i);
+  const priceMatch = text.match(/(?:₩|KRW|韩元|¥|￥|人均|价格)[^\d]{0,6}(\d{2,7})/i);
   const price = priceMatch ? Number(priceMatch[1]) : null;
   const hostname = new URL(url).hostname.replace(/^www\./, "");
   return {
@@ -904,7 +902,7 @@ function demoAnalysis(title, text, category, url, destination = "") {
     featureTags: inferFeatureTags(`${title} ${text}`, category),
     area: destination && text.includes(destination) ? `${destination}（具体区域待核实）` : "地点待核实",
     price,
-    priceLabel: price ? `参考 ¥${price}` : "价格待核实",
+    priceLabel: price ? `参考 ₩${price}` : "价格待核实",
     duration: "时长待核实",
     summary: `已读取 ${hostname} 的网页标题与公开正文，并按关键词归入“${category}”。当前为演示分析，关键事实仍需人工确认。`,
     tags: [category, "网页已读取", "事实待核实"],
@@ -926,7 +924,7 @@ function textSubmissionTitle(text) {
 function demoTextAnalysis(text, category, destination = "") {
   const compact = String(text || "").replace(/\s+/g, " ").trim();
   const groupSize = compact.match(/(?:适合|容纳|支持|我们|团队)?\s*(\d{1,2})\s*人/i)?.[1];
-  const priceMatch = compact.match(/(?:人均|预算|不超过|最多|上限|价格)[^\d]{0,8}(\d{2,5})/i);
+  const priceMatch = compact.match(/(?:人均|预算|不超过|最多|上限|价格|韩元|KRW)[^\d]{0,8}(\d{2,7})/i);
   const price = priceMatch ? Number(priceMatch[1]) : null;
   const details = { ...defaultDetails, evidence: `团队原始诉求：${compact.slice(0, 300)}` };
   if (category === "住宿") {
@@ -952,7 +950,7 @@ function demoTextAnalysis(text, category, destination = "") {
     featureTags: inferFeatureTags(compact, category),
     area: destination && compact.includes(destination) ? `${destination}（具体区域待匹配）` : "地点待匹配",
     price,
-    priceLabel: price ? `预算参考 ¥${price}` : "预算待补充",
+    priceLabel: price ? `预算参考 ₩${price}` : "预算待补充",
     duration: "时长待匹配",
     summary: `团队成员提出：${compact.slice(0, 260)}`,
     tags: [category, "团队诉求", ...inferFeatureTags(compact, category)].slice(0, 8),
@@ -1324,7 +1322,7 @@ const sheetDescriptions = {
   "室内休闲": "按汗蒸、桑拿、洗浴、温泉等分类；比较套餐、设施、过夜、餐食和使用限制。",
   "景点户外": "园林、博物馆、历史街区和户外项目；当前优先确认具体地点、票价、开放时间与天气影响。",
   "攻略文章": "攻略完整明细：摘要、避坑、证据和缺失信息；决策状态请统一到“候选决策台”修改。",
-  "两日行程": "包含周五晚抵达，以及周六、周日两天的初版安排。",
+  "三日行程": "济州岛 3 天 2 晚初版安排；日期、航班和动态价格仍需团队确认。",
   "预订清单": "所有需要团队确认或下单的事项；网站不会代替你付款。",
   "项目设置": "本次团队出行的需求约束与运行设置。",
   "项目总览": "当前资料完成度、候选数量和下一步重点。",
@@ -1384,7 +1382,7 @@ function placePriceSummary(place) {
   if (place.category === "住宿" && hasUsefulFact(place.details?.twoNightTotal)) return String(place.details.twoNightTotal);
   if (["餐饮", "密室", "休闲娱乐"].includes(place.category) && hasUsefulFact(place.details?.sixPersonTotal)) return String(place.details.sixPersonTotal);
   if (place.category === "景点" && hasUsefulFact(place.details?.ticketInfo)) return String(place.details.ticketInfo);
-  if (Number.isFinite(place.price)) return `¥${place.price}`;
+  if (Number.isFinite(place.price)) return `₩${place.price}`;
   return place.priceLabel || "待核实";
 }
 
@@ -1495,7 +1493,7 @@ function styleEditableFields(sheet, sheetHeaders, rowCount, editableHeaders) {
 function formatCandidateColumns(sheet, sheetHeaders, rowCount) {
   for (const header of ["每晚价格", "价格", "人均价格", "单人价格", "人均/套餐价格", "票价"]) {
     const column = sheetHeaders.indexOf(header) + 1;
-    if (column) sheet.getColumn(column).numFmt = "¥#,##0";
+    if (column) sheet.getColumn(column).numFmt = "₩#,##0";
   }
   const scoreColumn = sheetHeaders.indexOf("推荐分") + 1 || sheetHeaders.indexOf("AI推荐分") + 1;
   if (scoreColumn) sheet.getColumn(scoreColumn).numFmt = "0.0";
@@ -1547,9 +1545,9 @@ function writeFinalPlanSheet(workbook, state) {
     ["方案标题", fp.title, "显示为网站主标题"],
     ["目的地", fp.destination, "城市或主要目的地"],
     ["出行日期", fp.dates, "确定日期后直接在黄色单元格修改"],
-    ["行程结构", fp.schedule, "例如：周五晚抵达 · 周日返程"],
+    ["行程结构", fp.schedule, "例如：3 天 2 晚 · 国际航班直达济州"],
     ["同行人数", fp.people, "用于住宿、餐饮和活动人数判断"],
-    ["住宿晚数", fp.nights, "本次为周五、周六两晚"],
+    ["住宿晚数", fp.nights, "当前按 3 天 2 晚设计"],
     ["人均预算", fp.perPersonBudget, "可填写数字或预算区间"],
     ["方案说明", fp.summary, "网站首页的行程摘要"],
   ];
@@ -1560,9 +1558,9 @@ function writeFinalPlanSheet(workbook, state) {
     ["房间 / 床位", stay.roomsBeds, "写清房间数、床型和床数"],
     ["两晚总价", stay.twoNightTotal, "填写含清洁费、服务费后的总价"],
     ["入住 / 退房", stay.checkInOut, "填写具体时间和延迟入住限制"],
-    ["能否烧烤", stay.barbecue, "周六晚核心条件"],
+    ["能否烧烤", stay.barbecue, "非硬性条件，需要时再核对"],
     ["烧烤设备 / 费用", stay.bbqEquipment, "烤炉、炭火、食材、清洁费与限制"],
-    ["早餐安排", stay.breakfast, "周六早茶和周日早餐的具体门店"],
+    ["早餐安排", stay.breakfast, "第 2、3 天早餐的具体门店"],
     ["民宿原始链接", stay.sourceUrl, "保留预订平台或介绍页链接"],
   ];
   const completionValues = [...basics, ...stayFields].map((item) => item[1]);
@@ -1611,7 +1609,7 @@ function writeFinalPlanSheet(workbook, state) {
   section(15, "二、住宿确认", "民宿未确定前保持橙色“待补充”");
   stayFields.forEach((item, index) => fieldRow(16 + index, ...item));
 
-  section(27, "三、周末行程", "直接增删或修改下面的行程，网站按这里显示");
+  section(27, "三、三日行程", "直接增删或修改下面的行程，网站按这里显示");
   const itineraryHeaders = ["日期", "开始时间", "结束时间", "类型", "安排", "详细说明", "地址", "交通", "费用/人", "预订状态", "来源链接", "备注"];
   sheet.getRow(28).values = itineraryHeaders;
   itineraryHeaders.forEach((header, index) => {
@@ -1625,7 +1623,7 @@ function writeFinalPlanSheet(workbook, state) {
   fp.itinerary.forEach((item, index) => {
     const rowNumber = 29 + index;
     const row = sheet.getRow(rowNumber);
-    row.values = [item.day, item.time, item.endTime, item.category, item.title, item.subtitle, item.address, item.transport, item.cost, item.bookingStatus, item.sourceUrl || null, item.note || null];
+    row.values = [item.day, item.time, item.endTime, item.category, item.title, item.subtitle, item.address, item.transport, item.cost || null, item.bookingStatus, item.sourceUrl || null, item.note || null];
     row.height = 42;
     for (let column = 1; column <= 12; column += 1) {
       const cell = row.getCell(column);
@@ -1635,7 +1633,7 @@ function writeFinalPlanSheet(workbook, state) {
       cell.border = { bottom: { style: "hair", color: { argb: "D7DED8" } } };
     }
     row.getCell(9).numFmt = "#,##0";
-    row.getCell(10).dataValidation = { type: "list", allowBlank: true, formulae: ['"待确认,未预订,已预订,已完成,无需预订"'] };
+    row.getCell(10).dataValidation = { type: "list", allowBlank: true, formulae: ['"待确认,未预订,已预订,已完成,无需预订,无需预约,出发前复核,现场购票"'] };
   });
 
   const reservationSectionRow = 30 + fp.itinerary.length;
@@ -1786,11 +1784,11 @@ async function syncToExcel(state) {
     styleEditableFields(guideSheet, headers.guides, guides.length, ["标题", "子分类", "特征标签", "涉及区域"]);
     formatCandidateColumns(guideSheet, headers.guides, guides.length);
 
-    const itinerarySheet = ensureSheet(workbook, "两日行程", headers.itinerary);
+    const itinerarySheet = ensureSheet(workbook, "三日行程", headers.itinerary);
     const itineraryRows = [
-      ...state.itinerary.day0.map((item) => ["周五晚上", item.time, item.endTime, item.category, item.title, item.subtitle, item.address, item.transport, item.cost, item.bookingStatus, item.note, item.sourceId, state.places.find((place) => place.id === item.sourceId)?.sourceUrl || ""]),
-      ...state.itinerary.day1.map((item) => ["周六", item.time, item.endTime, item.category, item.title, item.subtitle, item.address, item.transport, item.cost, item.bookingStatus, item.note, item.sourceId, state.places.find((place) => place.id === item.sourceId)?.sourceUrl || ""]),
-      ...state.itinerary.day2.map((item) => ["周日", item.time, item.endTime, item.category, item.title, item.subtitle, item.address, item.transport, item.cost, item.bookingStatus, item.note, item.sourceId, state.places.find((place) => place.id === item.sourceId)?.sourceUrl || ""]),
+      ...state.itinerary.day0.map((item) => ["第1天", item.time, item.endTime, item.category, item.title, item.subtitle, item.address, item.transport, item.cost || "", item.bookingStatus, item.note, item.sourceId, state.places.find((place) => place.id === item.sourceId)?.sourceUrl || ""]),
+      ...state.itinerary.day1.map((item) => ["第2天", item.time, item.endTime, item.category, item.title, item.subtitle, item.address, item.transport, item.cost || "", item.bookingStatus, item.note, item.sourceId, state.places.find((place) => place.id === item.sourceId)?.sourceUrl || ""]),
+      ...state.itinerary.day2.map((item) => ["第3天", item.time, item.endTime, item.category, item.title, item.subtitle, item.address, item.transport, item.cost || "", item.bookingStatus, item.note, item.sourceId, state.places.find((place) => place.id === item.sourceId)?.sourceUrl || ""]),
     ];
     replaceRows(itinerarySheet, itineraryRows, headers.itinerary.length);
 
@@ -1803,11 +1801,11 @@ async function syncToExcel(state) {
       ["目的地", state.project.destination, `本次主题为${state.project.destination}`],
       ["出行结构", state.tripProfile.schedule, "具体日期待团队确认"],
       ["同行人数", state.tripProfile.groupSize, `按 ${state.tripProfile.groupSize} 人统一比较住宿与活动`],
-      ["住宿晚数", state.tripProfile.nights, "周五、周六两晚"],
+      ["住宿晚数", state.tripProfile.nights, "3 天行程当前按 2 晚设计"],
       ["住宿偏好", state.tripProfile.stayPreference, "重点检查房间、床位、卫浴与环境"],
       ["住宿预算", state.tripProfile.accommodationBudget, "确认日期后再定预算"],
-      ["周六晚安排", state.tripProfile.barbecue, "订房前必须确认允许烧烤"],
-      ["早餐", state.tripProfile.breakfasts.join("；"), "两顿都纳入预订清单"],
+      ["住宿附加需求", state.tripProfile.barbecue, "如需要烧烤，订房前确认规则"],
+      ["早餐", state.tripProfile.breakfasts.join("；"), "两顿早餐待团队补充具体店铺"],
       ["分类体系", "住宿 / 餐饮 / 密室 / 休闲娱乐 / 景点 / 攻略", "每类使用不同的提取字段与完整度标准"],
       ["团队活动", state.tripProfile.activity, "密室、汗蒸、桑拿、洗浴或同类活动"],
       ["AI 分析模型", providerLabel(), "所有 AI 结论仍需人工核实"],
@@ -1827,7 +1825,7 @@ async function syncToExcel(state) {
       ["已入选地点", state.places.filter((item) => item.candidateType === "place" && item.selected).length, "真实地点，可用于当前行程草案"],
       ["已采纳需求 / 攻略", state.places.filter((item) => item.candidateType !== "place" && item.selected).length, "筛选条件或来源线索，不会自动写入行程"],
       ["待确认预订", state.reservations.filter((item) => !/已完成|已预订/.test(item.status)).length, "付款前由团队最终确认"],
-      ["当前重点", "补充真实民宿、两顿早餐和密室资料", "可投递链接，也可直接写文字诉求"],
+      ["当前重点", "确定日期与直达航班、住宿、公交班次和具体餐厅", "可投递链接，也可直接写文字诉求"],
     ], headers.overview.length);
 
     for (const sheet of workbook.worksheets) {
@@ -2029,7 +2027,7 @@ async function importFromExcel() {
         featureTags: editedFeatureTags,
         area: editedArea,
         price: nextPrice,
-        priceLabel: Number.isFinite(nextPrice) ? `参考 ¥${nextPrice}` : current.priceLabel,
+        priceLabel: Number.isFinite(nextPrice) ? `参考 ₩${nextPrice}` : current.priceLabel,
         duration: editedDuration,
         score: Number(value(row, map, "推荐分")) || current.score,
         pros: editedPros,
@@ -2150,7 +2148,7 @@ async function importFromExcel() {
     });
   }
 
-  const itinerarySheet = workbook.getWorksheet("两日行程");
+  const itinerarySheet = workbook.getWorksheet("三日行程") || workbook.getWorksheet("两日行程");
   if (itinerarySheet && !hasFinalPlanHome) {
     const map = headerIndex(itinerarySheet);
     const imported = { day0: [], day1: [], day2: [] };
@@ -2159,7 +2157,7 @@ async function importFromExcel() {
       const dayLabel = String(value(row, map, "日期") || "").trim();
       const title = String(value(row, map, "地点") || "").trim();
       if (!dayLabel || !title) return;
-      const dayKey = dayLabel.includes("周五") ? "day0" : dayLabel.includes("周六") || dayLabel === "Day 1" ? "day1" : "day2";
+      const dayKey = /第\s*1\s*天|周五|Day\s*1/i.test(dayLabel) ? "day0" : /第\s*2\s*天|周六|Day\s*2/i.test(dayLabel) ? "day1" : "day2";
       const numericCost = Number(value(row, map, "预计费用/人"));
       imported[dayKey].push({
         time: String(value(row, map, "开始时间") || ""),
@@ -2311,8 +2309,8 @@ function adoptCandidateIntoState(state, candidate, input = {}) {
     return { target: "stay" };
   }
   const rawDay = limitedText(input.day, "", 20);
-  if (!rawDay || !/周五|星期五|周六|星期六|周日|星期日|周天/.test(rawDay)) {
-    throw new Error("加入行程时请指定 day：周五晚上、周六或周日");
+  if (!rawDay || !/第\s*[123]\s*天|Day\s*[123]|周五|星期五|周六|星期六|周日|星期日|周天/i.test(rawDay)) {
+    throw new Error("加入行程时请指定 day：第1天、第2天或第3天");
   }
   const day = normalizePlanDay(rawDay);
   const itineraryItem = {
@@ -2355,13 +2353,13 @@ async function stateForClient(request) {
 }
 
 async function proxyToUi(request, response, url) {
-  const upstreamUrl = new URL(`${url.pathname}${url.search}`, "http://127.0.0.1:3000");
+  const upstreamUrl = new URL(`${url.pathname}${url.search}`, `http://127.0.0.1:${uiPort}`);
   const upstreamHeaders = new Headers();
   for (const [name, value] of Object.entries(request.headers)) {
     if (value == null || ["host", "connection", "content-length"].includes(name.toLowerCase())) continue;
     upstreamHeaders.set(name, Array.isArray(value) ? value.join(", ") : value);
   }
-  upstreamHeaders.set("x-forwarded-host", request.headers.host || "localhost:8787");
+  upstreamHeaders.set("x-forwarded-host", request.headers.host || `localhost:${localPort}`);
   upstreamHeaders.set("x-forwarded-proto", request.headers["x-forwarded-proto"] || "http");
 
   const init = { method: request.method || "GET", headers: upstreamHeaders, redirect: "manual" };

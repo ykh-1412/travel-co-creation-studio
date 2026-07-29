@@ -7,9 +7,10 @@ const executable = process.platform === "win32"
   ? path.join(rootDir, "node_modules", ".bin", "vinext.cmd")
   : path.join(rootDir, "node_modules", ".bin", "vinext");
 const env = { ...process.env, PATH: `${path.dirname(process.execPath)}${path.delimiter}${process.env.PATH || ""}` };
+const uiPort = String(process.env.UI_PORT || "3100");
 
 const api = spawn(process.execPath, [path.join(rootDir, "server", "index.mjs")], { cwd: rootDir, stdio: "inherit", env });
-const ui = spawn(executable, ["start", "--hostname", "0.0.0.0"], { cwd: rootDir, stdio: "inherit", env, shell: process.platform === "win32" });
+const ui = spawn(executable, ["start", "--hostname", "0.0.0.0", "--port", uiPort], { cwd: rootDir, stdio: "inherit", env, shell: process.platform === "win32" });
 
 let stopping = false;
 function stop(code = 0) {

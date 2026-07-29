@@ -36,7 +36,7 @@ const fallbackCandidate = {
   name: "整篇攻略",
   category: "攻略",
   subCategory: "综合攻略",
-  area: "扬州",
+  area: "济州",
   summary: "原始攻略摘要",
   factsFound: ["页面标题"],
   missingFields: ["动态价格"],
@@ -58,7 +58,7 @@ test("normalizeCandidateType keeps new values and upgrades legacy records", () =
 
 test("normalizeAnalysisCandidates accepts a multi-candidate envelope", () => {
   const result = normalizeAnalysisCandidates({
-    summary: "扬州美食合集",
+    summary: "济州美食合集",
     candidates: [
       {
         candidateType: "place",
@@ -66,7 +66,7 @@ test("normalizeAnalysisCandidates accepts a multi-candidate envelope", () => {
         category: "餐饮",
         factsFound: ["招牌菜"],
         missingFields: ["预约方式"],
-        details: { address: "扬州市甲路 1 号" },
+        details: { address: "济州市甲路 1 号" },
       },
       {
         name: "乙密室",
@@ -81,7 +81,7 @@ test("normalizeAnalysisCandidates accepts a multi-candidate envelope", () => {
   assert.deepEqual(result.map((item) => item.name), ["甲餐厅", "乙密室"]);
   assert.deepEqual(result.map((item) => item.candidateType), ["place", "place"]);
   assert.deepEqual(result.map((item) => item.category), ["餐饮", "密室"]);
-  assert.equal(result[0].details.address, "扬州市甲路 1 号");
+  assert.equal(result[0].details.address, "济州市甲路 1 号");
   assert.equal(result[0].details.evidence, "来源页面");
   assert.equal(result[1].details.horrorLevel, "中恐");
   assert.deepEqual(result[1].factsFound, ["中恐"]);
@@ -117,20 +117,20 @@ test("normalizeAnalysisCandidates remains compatible with legacy single-object a
 test("duplicate AI candidates are removed before matching so human state cannot be overwritten", () => {
   const duplicate = {
     candidateType: "place",
-    name: "扬州宴（瘦西湖店）",
+    name: "济州海鲜（东门店）",
     category: "餐饮",
     summary: "第一条结果会继续匹配并保留旧投票",
-    details: { address: "扬州市长春路 38 号" },
+    details: { address: "济州市中央路 38 号" },
   };
   const result = dedupeAnalysisCandidates([
     duplicate,
     { ...duplicate, summary: "模型重复返回的第二条" },
-    { ...duplicate, details: { address: "扬州市文昌路 2 号" } },
+    { ...duplicate, details: { address: "济州市莲洞路 2 号" } },
   ], { fallbackCategory: "餐饮", fallbackName: "来源页面" });
 
   assert.equal(result.length, 2);
   assert.equal(result[0].summary, "第一条结果会继续匹配并保留旧投票");
-  assert.equal(result[1].details.address, "扬州市文昌路 2 号");
+  assert.equal(result[1].details.address, "济州市莲洞路 2 号");
 });
 
 test("submitted links accept public web pages but reject local and private network targets", () => {
@@ -161,14 +161,14 @@ test("sanitizeCandidatePatch preserves verification unless explicitly edited and
   const current = {
     id: "place-edit",
     candidateType: "place",
-    name: "老扬州烧烤",
+    name: "济州黑猪烤肉",
     category: "餐饮",
     subCategory: "烧烤",
     summary: "AI 摘要",
     dataStatus: "AI 总结，等待人工核实",
     verificationStatus: "已核实",
     manualOverrides: {},
-    details: { address: "扬州市测试路 1 号" },
+    details: { address: "济州市测试路 1 号" },
   };
 
   const summaryOnly = sanitizeCandidatePatch({ summary: "人工补充摘要" }, current);
@@ -392,7 +392,7 @@ function fixturePlace(id, sourceId, overrides = {}) {
     category: "餐饮",
     subCategory: "烧烤",
     featureTags: ["餐饮", "烧烤"],
-    area: "扬州",
+    area: "济州",
     price: 100,
     priceLabel: "人均 ¥100",
     duration: "2 小时",
@@ -410,7 +410,7 @@ function fixturePlace(id, sourceId, overrides = {}) {
     manualOverrides: {},
     sourceUrl: `https://example.com/${sourceId}`,
     dataStatus: "测试数据",
-    details: { address: "扬州市测试路" },
+    details: { address: "济州市测试路" },
     ...overrides,
   };
 }

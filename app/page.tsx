@@ -191,8 +191,8 @@ type AppState = {
 };
 
 const EMPTY_STATE: AppState = {
-  project: { name: "我的出行共创项目", destination: "待确定目的地", days: 2, people: 6, budget: 6000, status: "方案共创中", tagline: "把分散的链接和想法，整理成大家都看得懂的出行方案。" },
-  tripProfile: { dates: "待团队确认", schedule: "周五晚抵达 · 周日傍晚返程", groupSize: 6, nights: 2, stayPreference: "环境好、整租优先、至少 3 个独立睡眠空间", barbecue: "周六晚在民宿烧烤", breakfasts: ["周六早茶", "周日早餐"], activity: "6 人密室 / 团队活动", accommodationBudget: "待团队确认" },
+  project: { name: "济州岛三日旅行共创", destination: "韩国济州岛", days: 3, people: 6, budget: 0, status: "方案共创中", tagline: "六个人一起把济州岛的链接和想法整理成可执行计划。" },
+  tripProfile: { dates: "待团队确认", schedule: "3 天 2 晚 · 国际航班直达济州", groupSize: 6, nights: 2, stayPreference: "济州市区交通方便、环境舒适，适合 6 人入住并可简单做饭", barbecue: "待团队确认", breakfasts: ["民宿简餐或附近早餐", "民宿简餐或附近早餐"], activity: "东线自然景观、海岸步道与济州美食", accommodationBudget: "六人两晚约 ¥1,800–3,000" },
   links: [],
   places: [],
   itinerary: { day0: [], day1: [], day2: [] },
@@ -202,12 +202,12 @@ const EMPTY_STATE: AppState = {
     title: "我的出行共创项目",
     destination: "待确定目的地",
     dates: "待团队确认",
-    schedule: "周五晚抵达 · 周日傍晚返程",
+    schedule: "3 天 2 晚 · 国际航班直达济州",
     people: 6,
     nights: 2,
-    perPersonBudget: "待团队确认",
-    summary: "周五晚集合，周末一起住、一起吃、一起玩。",
-    stay: { name: "未选择", address: "待补充", capacity: "6 人", roomsBeds: "待补充", twoNightTotal: "待补充", checkInOut: "待补充", barbecue: "待确认", bbqEquipment: "待确认", breakfast: "待确认", sourceUrl: "" },
+    perPersonBudget: "¥1,000–1,500 / 人（不含往返济州机票）",
+    summary: "餐饮按正餐约 ¥100/人并穿插民宿做饭；岛内公交优先、必要时短途拼车，贵景点可替换为免费海岸与步道。",
+    stay: { name: "未选择", address: "待补充", capacity: "6 人", roomsBeds: "优先整租并确认厨房可用", twoNightTotal: "六人两晚约 ¥1,800–3,000", checkInOut: "待补充", barbecue: "非硬性条件", bbqEquipment: "按需确认", breakfast: "民宿简餐或附近早餐", sourceUrl: "" },
     itinerary: [],
     reservations: [],
     updatedAt: "",
@@ -216,8 +216,8 @@ const EMPTY_STATE: AppState = {
   capabilities: { canManage: false },
 };
 
-const teamTabs = [["plan", "看行程"], ["collect", "投递想法"], ["library", "候选与需求"]] as const;
-const manageTab = ["manage", "主电脑管理"] as const;
+const teamTabs = [["plan", "行程 PLAN"], ["collect", "投递 ADD"], ["library", "候选 PICK"]] as const;
+const manageTab = ["manage", "管理 EDIT"] as const;
 type TabKey = (typeof teamTabs)[number][0] | typeof manageTab[0];
 const categories = ["自动识别", "攻略文章", "住宿", "餐饮", "密室", "室内休闲", "景点户外"];
 const mainFilters = ["全部", "住宿", "餐饮", "密室", "休闲娱乐", "景点"];
@@ -242,8 +242,8 @@ function isPending(value: unknown) {
 }
 
 function apiBase() {
-  if (typeof window === "undefined") return "http://localhost:8787";
-  if (window.location.port === "3000") return `${window.location.protocol}//${window.location.hostname}:8787`;
+  if (typeof window === "undefined") return "http://localhost:8887";
+  if (window.location.port === "3100") return `${window.location.protocol}//${window.location.hostname}:8887`;
   return window.location.origin;
 }
 
@@ -252,9 +252,8 @@ function sourceName(url: string) {
 }
 
 function mapSearchUrl(keyword: string, city?: string) {
-  const params = new URLSearchParams({ keyword, src: "travel-co-creation" });
-  if (city && !isPending(city)) params.set("city", city);
-  return `https://uri.amap.com/search?${params.toString()}`;
+  const query = [keyword, city && !isPending(city) ? city : ""].filter(Boolean).join(" ");
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
 function candidateKind(place: Place): CandidateKind {
@@ -287,7 +286,7 @@ function importantDetails(place: Place, teamPeople: number) {
   const d = place.details;
   if (place.category === "住宿") return [["位置", d.address], ["两晚价格", !isPending(d.twoNightTotal) ? d.twoNightTotal : place.priceLabel], ["户型 / 房间", `${d.roomType} / ${d.rooms}`], ["床位 / 床型", `${d.beds} / ${d.bedTypes}`], [`${teamPeople} 人容量`, d.capacity], ["烧烤", d.barbecue], ["额外费用", d.extraFees], ["取消政策", d.cancellationPolicy]];
   if (place.category === "餐饮") return [["餐饮分类", place.subCategory], ["位置", d.address], ["参考人均", place.priceLabel], ["团队总价", d.sixPersonTotal], ["招牌菜", d.signatureDishes], ["包间 / 团队", `${d.privateRoom} / ${d.groupSuitability}`], ["排队", d.queueInfo], ["营业时间", d.openingHours]];
-  if (place.category === "密室") return [["主题", d.themeName], ["位置", d.address], ["恐怖 / 难度", `${d.horrorLevel} / ${d.difficulty}`], ["规模", `${d.venueSize} / ${d.roomCount}`], ["六人开场", d.sixPersonSession], ["价格", !isPending(d.sixPersonTotal) ? d.sixPersonTotal : place.priceLabel], ["时长", place.duration], ["NPC", d.npcInteraction]];
+  if (place.category === "密室") return [["主题", d.themeName], ["位置", d.address], ["恐怖 / 难度", `${d.horrorLevel} / ${d.difficulty}`], ["规模", `${d.venueSize} / ${d.roomCount}`], [`${teamPeople}人开场`, d.sixPersonSession], ["价格", !isPending(d.sixPersonTotal) ? d.sixPersonTotal : place.priceLabel], ["时长", place.duration], ["NPC", d.npcInteraction]];
   if (place.category === "休闲娱乐") return [["休闲类型", place.subCategory], ["位置", d.address], ["参考价格", place.priceLabel], ["包含设施", d.leisureFacilities], ["能否过夜", d.overnight], ["是否含餐", d.includedMeals], ["休息区域", d.restArea], ["使用限制", d.serviceRestrictions]];
   if (place.category === "景点") return [["游玩类型", place.subCategory], ["具体地点", d.address], ["票价", !isPending(d.ticketInfo) ? d.ticketInfo : place.priceLabel], ["开放时间", d.openingHours], ["建议时长", !isPending(d.recommendedDuration) ? d.recommendedDuration : place.duration], ["室内 / 室外", d.indoorOutdoor], ["天气影响", d.weatherImpact], ["预约", d.reservation]];
   return [["涉及区域", place.area], ["数据状态", place.dataStatus]];
@@ -325,8 +324,8 @@ export default function Home() {
   const [editingLinkId, setEditingLinkId] = useState("");
   const [linkDraft, setLinkDraft] = useState({ title: "", category: "", subCategory: "", note: "" });
   const [editingPlaceId, setEditingPlaceId] = useState("");
-  const [adoptDay, setAdoptDay] = useState<"周五晚上" | "周六" | "周日">("周六");
-  const [backendBase, setBackendBase] = useState("http://localhost:8787");
+  const [adoptDay, setAdoptDay] = useState<"第1天" | "第2天" | "第3天">("第2天");
+  const [backendBase, setBackendBase] = useState("http://localhost:8887");
   const [draftPlan, setDraftPlan] = useState<FinalPlan | null>(null);
   const [savingPlan, setSavingPlan] = useState(false);
 
@@ -382,7 +381,7 @@ export default function Home() {
   const finalPlan = state.finalPlan || EMPTY_STATE.finalPlan;
   const finalProgress = useMemo(() => {
     const mealItems = finalPlan.itinerary.filter((item) => /餐|早茶|早餐|午餐|晚餐|烧烤|美食/.test(`${item.category}${item.title}`));
-    const activityItems = finalPlan.itinerary.filter((item) => /密室|活动|游玩|景点|休闲|洗浴|桑拿|汗蒸/.test(`${item.category}${item.title}`));
+    const activityItems = finalPlan.itinerary.filter((item) => /密室|活动|游玩|景点|景观|海岸|市场|休闲|洗浴|桑拿|汗蒸/.test(`${item.category}${item.title}`));
     const isResolvedItem = (item: FinalPlan["itinerary"][number]) => !isPending(item.title)
       && !isPending(item.address)
       && !isPending(item.time)
@@ -400,7 +399,7 @@ export default function Home() {
     ];
     return { groups, confirmed: groups.filter((item) => item.ready).length, pending: groups.filter((item) => !item.ready).length };
   }, [finalPlan]);
-  const groupedFinalItinerary = useMemo(() => ["周五晚上", "周六", "周日"].map((day) => ({
+  const groupedFinalItinerary = useMemo(() => ["第1天", "第2天", "第3天"].map((day) => ({
     day,
     items: finalPlan.itinerary.filter((item) => item.day === day),
   })), [finalPlan.itinerary]);
@@ -643,14 +642,15 @@ export default function Home() {
   }
 
   const destination = finalPlan.destination || state.project.destination || "待确定目的地";
-  const brandName = isPending(destination) ? "出行共创" : `去${destination}`;
-  const brandSeal = isPending(destination) ? "行" : destination.slice(0, 1);
+  const isJeju = destination.includes("济州");
+  const brandName = isJeju ? "JEJU 같이" : isPending(destination) ? "出行共创" : `去${destination}`;
+  const brandSeal = isJeju ? "ㅈ" : isPending(destination) ? "行" : destination.slice(0, 1);
   const workbookName = state.settings.workbookPath.split(/[\\/]/).pop() || "出行共创项目.xlsx";
 
   return (
     <main>
       <header className="topbar">
-        <button className="brand" onClick={() => setActiveTab("plan")} aria-label="返回行程"><span className="brand-seal">{brandSeal}</span><span><strong>{brandName}</strong><small>{finalPlan.people} 人 · {state.project.days} 天共创</small></span></button>
+        <button className="brand" onClick={() => setActiveTab("plan")} aria-label="返回行程"><span className="brand-seal">{brandSeal}</span><span><strong>{brandName}</strong><small>{isJeju ? "제주 여행을 같이 만들어요" : `${finalPlan.people} 人 · ${state.project.days} 天共创`}</small></span></button>
         <nav aria-label="网站主导航">{visibleTabs.map(([key, label]) => <button key={key} className={displayTab === key ? "nav-active" : ""} onClick={() => setActiveTab(key)}>{label}</button>)}</nav>
         <div className={`connection ${connected ? "online" : "offline"}`}><span aria-hidden="true" />{connected ? "已连接并自动同步" : "正在连接"}</div>
       </header>
@@ -664,29 +664,29 @@ export default function Home() {
           <div className="shell simple-hero-grid">
             <div className="simple-hero-copy">
               <div className="sync-line"><span className={connected ? "online" : ""} />{connected ? `已保存到主电脑 Excel · ${formatTime(state.settings.lastExcelSync)}（不等于已备份 GitHub）` : "正在连接主电脑资料"}</div>
-              <p className="eyebrow">团队最终行程</p>
-              <h1>{finalPlan.title}</h1>
+              <p className="eyebrow"><span>제주</span> OUR JEJU NOTE · 03 DAYS</p>
+              <h1><span className="hero-english">JEJU,<br />TOGETHER.</span><span className="hero-chinese">{finalPlan.title}</span></h1>
               <p className="simple-summary">{finalPlan.summary}</p>
-              <div className="simple-actions"><button className="primary" onClick={() => setActiveTab("collect")}>＋ 投递链接或想法</button><button className="small-button" onClick={() => setActiveTab("library")}>一起选候选</button></div>
+              <div className="simple-actions"><button className="primary" onClick={() => setActiveTab("collect")}>＋ 分享一个济州想法</button><button className="small-button" onClick={() => setActiveTab("library")}>看看大家的候选</button></div>
             </div>
-            <aside className="trip-at-a-glance">
-              <div><span>什么时候</span><strong className={isPending(finalPlan.dates) ? "pending-value" : ""}>{finalPlan.dates}</strong></div>
-              <div><span>怎么安排</span><strong>{finalPlan.schedule}</strong></div>
-              <div><span>几个人</span><strong>{finalPlan.people} 人 · {finalPlan.nights} 晚</strong></div>
-              <div><span>预算</span><strong className={isPending(finalPlan.perPersonBudget) ? "pending-value" : ""}>{finalPlan.perPersonBudget}</strong></div>
-            </aside>
+            <div className="hero-board"><div className="jeju-ticket"><span>JEJU ISLAND</span><strong>제주</strong><em>06 FRIENDS · 03 DAYS</em></div><aside className="trip-at-a-glance">
+              <div><span>WHEN · 日期</span><strong className={isPending(finalPlan.dates) ? "pending-value" : ""}>{finalPlan.dates}</strong></div>
+              <div><span>ROUTE · 路线</span><strong>{finalPlan.schedule}</strong></div>
+              <div><span>CREW · 成员</span><strong>{finalPlan.people} 人 · {finalPlan.nights} 晚</strong></div>
+              <div><span>BUDGET · 预算</span><strong className={isPending(finalPlan.perPersonBudget) ? "pending-value" : ""}>{finalPlan.perPersonBudget}</strong></div>
+            </aside></div>
           </div>
         </section>
 
         <section className="decision-strip"><div className="shell progress-shell"><div className="progress-heading"><strong>{finalProgress.confirmed}/{finalProgress.groups.length}</strong><span>关键环节已确定</span></div><div className="progress-groups">{finalProgress.groups.map((item) => <div className={item.ready ? "ready" : "pending"} key={item.key}><i /> <span>{item.label}</span><small>{item.note}</small></div>)}</div><p>这里按日期、住宿、餐饮、活动、预算和预订的真实完成情况计算，不再按文字字段凑数。</p>{canManage ? <button className="small-button" onClick={() => setActiveTab("manage")}>主电脑管理</button> : <button className="small-button" onClick={() => setActiveTab("collect")}>继续补充</button>}</div></section>
 
         <section className="shell essentials-section">
-          <div className="simple-section-title"><div><p className="eyebrow">先看重点</p><h2>住宿与待确认事项</h2></div><span>橙色内容表示还没有最终确定</span></div>
+          <div className="simple-section-title"><div><p className="eyebrow">STAY · CHECK</p><h2>先把住哪里定下来</h2></div><span>济州橘标记的内容还等大家确认</span></div>
           <div className="essentials-grid">
             <article className="stay-summary-card">
-              <header><div><span>两晚住宿</span><h3>{finalPlan.stay.name}</h3></div><StatusPill value={finalPlan.stay.name} /></header>
-              <div className="stay-summary-fields"><FinalField label="地址" value={finalPlan.stay.address} /><FinalField label="房间 / 床位" value={finalPlan.stay.roomsBeds} /><FinalField label="两晚总价" value={finalPlan.stay.twoNightTotal} /><FinalField label="周六烧烤" value={finalPlan.stay.barbecue} /></div>
-              <div className="card-link-row">{!isPending(finalPlan.stay.address) && <a href={mapSearchUrl(finalPlan.stay.address, destination)} target="_blank" rel="noreferrer">在高德地图查看</a>}{finalPlan.stay.sourceUrl && <a href={finalPlan.stay.sourceUrl} target="_blank" rel="noreferrer">查看民宿原链接</a>}</div>
+              <header><div><span>{finalPlan.nights} 晚住宿</span><h3>{finalPlan.stay.name}</h3></div><StatusPill value={finalPlan.stay.name} /></header>
+              <div className="stay-summary-fields"><FinalField label="地址" value={finalPlan.stay.address} /><FinalField label="房间 / 床位" value={finalPlan.stay.roomsBeds} /><FinalField label={`${finalPlan.nights}晚总价`} value={finalPlan.stay.twoNightTotal} /><FinalField label="烧烤条件" value={finalPlan.stay.barbecue} /></div>
+              <div className="card-link-row">{!isPending(finalPlan.stay.address) && <a href={mapSearchUrl(finalPlan.stay.address, destination)} target="_blank" rel="noreferrer">在地图查看</a>}{finalPlan.stay.sourceUrl && <a href={finalPlan.stay.sourceUrl} target="_blank" rel="noreferrer">查看住宿原链接</a>}</div>
             </article>
             <article className="pending-card">
               <header><span>下一步</span><h3>优先确认这几项</h3></header>
@@ -696,20 +696,20 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="final-itinerary-section simple-itinerary-section"><div className="shell"><div className="simple-section-title"><div><p className="eyebrow">两天怎么玩</p><h2>周五晚到周日</h2></div><span>主电脑修改 Excel 后，这里会自动刷新</span></div><div className="final-day-grid">{groupedFinalItinerary.map(({ day, items }) => <FinalDay key={day} day={day} items={items} destination={destination} />)}</div></div></section>
+        <section className="final-itinerary-section simple-itinerary-section"><div className="shell"><div className="simple-section-title"><div><p className="eyebrow">ROUTE · 제주</p><h2>三天，把海岸和小城慢慢走完</h2></div><span>济州市区 · 东线 · 西北海岸</span></div><div className="final-day-grid">{groupedFinalItinerary.map(({ day, items }) => <FinalDay key={day} day={day} items={items} destination={destination} />)}</div></div></section>
 
-        <section className="shell final-reservation-section simple-reservation-section"><div className="simple-section-title"><div><p className="eyebrow">出发前清单</p><h2>谁来确认、什么时候完成</h2></div><span>网站只记录进度，不会自动下单</span></div><div className="reservation-list">{finalPlan.reservations.length ? finalPlan.reservations.map((item) => <article key={item.id}><span className="reservation-type">{item.type}</span><div><h3>{item.item}</h3><p>{item.targetTime} · {item.note}</p></div><div className="reservation-owner"><small>{item.owner}</small><span>截至 {item.deadline}</span></div><b className={`status-badge ${statusTone(item.status)}`}><i />{item.status}</b></article>) : <div className="empty-state">还没有预订事项，请在 Excel 首页底部添加。</div>}</div></section>
+        <section className="shell final-reservation-section simple-reservation-section"><div className="simple-section-title"><div><p className="eyebrow">READY · GO</p><h2>出发前，六个人各有分工</h2></div><span>网站只记录进度，不会自动下单</span></div><div className="reservation-list">{finalPlan.reservations.length ? finalPlan.reservations.map((item) => <article key={item.id}><span className="reservation-type">{item.type}</span><div><h3>{item.item}</h3><p>{item.targetTime} · {item.note}</p></div><div className="reservation-owner"><small>{item.owner}</small><span>截至 {item.deadline}</span></div><b className={`status-badge ${statusTone(item.status)}`}><i />{item.status}</b></article>) : <div className="empty-state">还没有预订事项，请在 Excel 首页底部添加。</div>}</div></section>
       </>}
 
       {displayTab === "collect" && <section className="shell workspace-page">
-        <div className="page-title"><p className="eyebrow">投递灵感</p><h1>有链接就粘贴，没有链接就直接说想法。</h1><p>DeepSeek 会把“想住能烧烤的六人民宿”“想玩中恐密室”这类文字，和网页链接一样整理成分类、条件、缺失项与候选资料，再写进 Excel。</p></div>
+        <div className="page-title"><p className="eyebrow">ADD TO JEJU</p><h1>把你种草的济州岛，都丢进来。</h1><p>有链接就粘贴，没有链接就直接说想法。DeepSeek 会把民宿、黑猪烤肉、海边咖啡和团队偏好分开整理，保留原话后写入 Excel。</p></div>
         <div className="report-summary"><div><span>全部投递</span><strong>{stats.links}</strong></div><div className="good"><span>已成功整理</span><strong>{stats.completed}</strong></div><div className="warn"><span>未整理</span><strong>{stats.unorganized}</strong></div><div><span>处理中</span><strong>{stats.processing}</strong></div></div>
         <div className="collect-layout">
           <form className="collect-form" onSubmit={submitIdeas}>
             <div className="submission-switch" role="group" aria-label="选择投递方式"><button type="button" className={submissionMode === "link" ? "selected" : ""} aria-pressed={submissionMode === "link"} onClick={() => setSubmissionMode("link")}><b>粘贴链接</b><span>攻略、民宿、餐厅或活动页面</span></button><button type="button" className={submissionMode === "text" ? "selected" : ""} aria-pressed={submissionMode === "text"} onClick={() => setSubmissionMode("text")}><b>直接写想法</b><span>没有链接，也能表达自己的诉求</span></button></div>
             {submissionMode === "link"
               ? <><label htmlFor="urls">链接列表</label><textarea id="urls" value={urls} onChange={(event) => setUrls(event.target.value)} placeholder={"粘贴攻略、民宿、密室或餐厅链接……\n每行一个，也可以一次粘贴多个"} /></>
-              : <><label htmlFor="ideaText">你想要什么</label><textarea id="ideaText" value={ideaText} onChange={(event) => setIdeaText(event.target.value.slice(0, 4000))} placeholder={"例如：我想住环境安静的整租民宿，6 个人能住，周六晚上可以烧烤，最好靠近东关街，两晚总价不要太高。"} /><div className="text-counter">{ideaText.length} / 4000</div></>}
+              : <><label htmlFor="ideaText">你想要什么</label><textarea id="ideaText" value={ideaText} onChange={(event) => setIdeaText(event.target.value.slice(0, 4000))} placeholder={"例如：我想住济州市区交通方便的酒店，6 个人入住，两晚总价不要太高，附近最好有黑猪烤肉和早餐。"} /><div className="text-counter">{ideaText.length} / 4000</div></>}
             <div className="form-row"><label>大概是什么<select value={category} onChange={(event) => setCategory(event.target.value)}>{categories.map((item) => <option key={item}>{item}</option>)}</select></label><label>你的昵称<input value={submitter} onChange={(event) => rememberNickname(event.target.value)} placeholder="例如：小王" /></label></div>
             <label>补充说明（可选）<input value={note} onChange={(event) => setNote(event.target.value)} placeholder="例如：这是我最在意的条件，优先级比较高" /></label>
             <button className="primary wide" disabled={sending}>{sending ? "正在提交……" : submissionMode === "text" ? "交给 DeepSeek 整理" : "开始读取并整理"}</button><p className="form-hint">文字会按“团队偏好”保存，不会冒充真实商户信息；链接若需要登录或验证码，会明确标记为读取受限。</p>
@@ -775,7 +775,7 @@ export default function Home() {
           <div className="vote-panel"><div className="vote-summary"><strong>{votes.support}</strong><span>人想去</span><small>{votes.okay} 人可以 · {votes.reject} 人不考虑</small></div><div className="vote-buttons">{voteChoices.map((choice) => <button key={choice} className={myVote === choice ? "selected" : ""} onClick={() => voteForPlace(place.id, choice)}>{choice}</button>)}</div></div>
           <details className="candidate-details"><summary>查看更多资料</summary><div className="place-tags">{[...new Set([place.subCategory, ...place.featureTags, ...place.tags])].map((tag) => <span key={tag}>{tag}</span>)}</div>{place.keyMissing?.length ? <p className="candidate-missing"><b>缺失项：</b>{place.keyMissing.join(" · ")}</p> : null}{place.manualNote ? <p className="candidate-manual-note"><b>人工备注：</b>{place.manualNote}</p> : null}{Object.keys(place.manualOverrides || {}).length ? <p className="candidate-manual-note"><b>人工保护：</b>{Object.keys(place.manualOverrides || {}).length} 个字段不会被重新分析覆盖</p> : null}<div className="place-footer"><div><span>参考预算</span><strong>{place.priceLabel}</strong></div><div className="score"><span>推荐度</span><strong>{place.score.toFixed(1)}</strong></div></div></details>
           {editingPlaceId === place.id && <CandidateEditor place={place} onCancel={() => setEditingPlaceId("")} onSave={savePlaceEdit} />}
-          {canManage && editingPlaceId !== place.id && <div className="manager-card-actions"><button className="small-button" onClick={() => setEditingPlaceId(place.id)}>修改候选</button>{place.category !== "住宿" && <select aria-label="选择加入哪天行程" value={adoptDay} onChange={(event) => setAdoptDay(event.target.value as typeof adoptDay)}><option>周五晚上</option><option>周六</option><option>周日</option></select>}<button className="primary" onClick={() => adoptPlace(place)}>{place.category === "住宿" ? "采用为住宿" : `加入${adoptDay}行程`}</button></div>}
+          {canManage && editingPlaceId !== place.id && <div className="manager-card-actions"><button className="small-button" onClick={() => setEditingPlaceId(place.id)}>修改候选</button>{place.category !== "住宿" && <select aria-label="选择加入哪天行程" value={adoptDay} onChange={(event) => setAdoptDay(event.target.value as typeof adoptDay)}><option>第1天</option><option>第2天</option><option>第3天</option></select>}<button className="primary" onClick={() => adoptPlace(place)}>{place.category === "住宿" ? "采用为住宿" : `加入${adoptDay}行程`}</button></div>}
           <div className="card-link-row">{place.details.address && !isPending(place.details.address) && <a href={mapSearchUrl(place.details.address, destination)} target="_blank" rel="noreferrer">地图</a>}{place.sourceUrl && <a href={place.sourceUrl} target="_blank" rel="noreferrer">原始链接</a>}</div>
         </article>})}</div>
         {!filteredPlaces.length && <div className="empty-state">当前筛选下没有真实地点。团队诉求和攻略资料不会混进这里。</div>}
@@ -926,7 +926,7 @@ function PlanEditor({ plan, saving, onChange, onCancel, onSave }: {
   function addItinerary() {
     onChange({
       ...plan,
-      itinerary: [...plan.itinerary, { day: "周六", time: "", endTime: "", category: "安排", title: "新增安排", subtitle: "", address: "待补充", transport: "待补充", cost: 0, bookingStatus: "待确认", sourceUrl: "", sourceId: "", note: "" }],
+      itinerary: [...plan.itinerary, { day: "第2天", time: "", endTime: "", category: "安排", title: "新增安排", subtitle: "", address: "待补充", transport: "待补充", cost: 0, bookingStatus: "待确认", sourceUrl: "", sourceId: "", note: "" }],
     });
   }
 
@@ -978,12 +978,12 @@ function PlanEditor({ plan, saving, onChange, onCancel, onSave }: {
         </section>}
 
         {activeSection === "itinerary" && <section className="editor-section">
-          <div className="editor-section-title with-action"><b>03</b><div><h2>周末行程</h2><p>可以增加、删除和调整每一项安排。</p></div><button type="button" className="small-button" onClick={addItinerary}>＋ 添加行程</button></div>
+          <div className="editor-section-title with-action"><b>03</b><div><h2>三日行程</h2><p>可以增加、删除和调整每一项安排。</p></div><button type="button" className="small-button" onClick={addItinerary}>＋ 添加行程</button></div>
           <div className="editor-card-list">
             {plan.itinerary.map((item, index) => <article className="itinerary-editor-card" key={`${item.day}-${index}`}>
               <header><strong>{String(index + 1).padStart(2, "0")} · {item.title || "未命名安排"}</strong><button type="button" className="remove-button" onClick={() => onChange({ ...plan, itinerary: plan.itinerary.filter((_, itemIndex) => itemIndex !== index) })}>删除</button></header>
               <div className="editor-grid compact-grid">
-                <label className="editor-field"><span>日期</span><select value={item.day} onChange={(event) => updateItinerary(index, "day", event.target.value)}><option>周五晚上</option><option>周六</option><option>周日</option></select></label>
+                <label className="editor-field"><span>日期</span><select value={item.day} onChange={(event) => updateItinerary(index, "day", event.target.value)}><option>第1天</option><option>第2天</option><option>第3天</option></select></label>
                 <EditorField label="开始时间" value={item.time} inputType="time" onChange={(value) => updateItinerary(index, "time", value)} />
                 <EditorField label="结束时间" value={item.endTime} inputType="time" onChange={(value) => updateItinerary(index, "endTime", value)} />
                 <EditorField label="类型" value={item.category} onChange={(value) => updateItinerary(index, "category", value)} />
@@ -1049,8 +1049,9 @@ function FinalField({ label, value }: { label: string; value: unknown }) {
 }
 
 function FinalDay({ day, items, destination }: { day: string; items: FinalPlan["itinerary"]; destination: string }) {
+  const dayNumber = day.match(/\d+/)?.[0] || "·";
   return <article className="final-day-card">
-    <header><span>{day === "周五晚上" ? "FRI" : day === "周六" ? "SAT" : "SUN"}</span><h3>{day}</h3><b>{items.length} 项安排</b></header>
+    <header><span>D{dayNumber}</span><h3>{day}</h3><b>{items.length} 项安排</b></header>
     <div className="final-day-items">{items.length ? items.map((item, index) => <div className="final-day-item" key={`${day}-${item.time}-${item.title}-${index}`}>
       <time>{item.time}{item.endTime ? `–${item.endTime}` : ""}</time><i /><div><span>{item.category}</span><h4>{item.title}</h4><p>{item.subtitle || item.note}</p><small>{[item.address, item.transport].filter(Boolean).join(" · ") || "地点待补充"}</small><div className="itinerary-item-actions"><b className={`status-badge ${statusTone(item.bookingStatus)}`}><i />{item.bookingStatus || "待确认"}</b>{item.address && !isPending(item.address) && <a href={mapSearchUrl(item.address, destination)} target="_blank" rel="noreferrer">地图</a>}{item.sourceUrl && <a href={item.sourceUrl} target="_blank" rel="noreferrer">来源</a>}</div></div>
     </div>) : <div className="day-empty">请在 Excel 首页添加当天安排</div>}</div>

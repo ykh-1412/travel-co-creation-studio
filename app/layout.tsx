@@ -4,12 +4,12 @@ import "./globals.css";
 
 export async function generateMetadata(): Promise<Metadata> {
   const incoming = await headers();
-  const host = incoming.get("host") || "localhost:3000";
+  const host = incoming.get("host") || "localhost:3100";
   const forwardedProtocol = incoming.get("x-forwarded-proto");
   const protocol = forwardedProtocol === "https" ? "https" : "http";
   const base = new URL(`${protocol}://${host}`);
-  const title = "出行共创台 · 把大家的想法整理成一份行程";
-  const description = "团队提交旅行链接或直接写想法，交给 DeepSeek 整理并写入 Excel，再一起筛选住宿、美食、活动与最终行程。";
+  const title = "济州岛旅行共创台 · 六个人一起完成三日计划";
+  const description = "团队提交济州岛旅行链接或直接写想法，交给 DeepSeek 整理并写入 Excel，再一起筛选住宿、美食、活动与最终行程。";
   return {
     metadataBase: base,
     title,
