@@ -15,7 +15,7 @@
 
 ## 旅行方案档案
 
-GitHub 同时保存已经做过的旅行方案。当前韩国济州岛方案在仓库根目录，历史扬州方案保存在 [`travel-plans/yangzhou`](./travel-plans/yangzhou/)；档案中包含 Excel、结构化数据、关键 Prompt 和当时的分享图片，方便以后查看或重新切换。
+GitHub 同时保存已经做过的旅行方案。当前韩国济州岛方案在仓库根目录，历史扬州方案保存在 [`travel-plans/yangzhou`](./travel-plans/yangzhou/)；历史档案只保留 Excel 和精简 Prompt，重新启用时由 AI 按当前架构重做，不直接恢复旧网站数据。完整切换规则见 [`travel-plans/README.md`](./travel-plans/README.md)。
 
 ## 访问方式
 
