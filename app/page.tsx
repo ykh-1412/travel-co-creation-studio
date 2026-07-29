@@ -160,6 +160,7 @@ type FinalPlan = {
   people: number;
   nights: number;
   perPersonBudget: string;
+  roundTripFlightPerPerson: string;
   summary: string;
   stay: {
     name: string;
@@ -225,8 +226,9 @@ const EMPTY_STATE: AppState = {
     schedule: "3 天 2 晚 · 国际航班直达济州",
     people: 6,
     nights: 2,
-    perPersonBudget: "¥1,000–1,500 / 人（不含往返济州机票）",
-    summary: "餐饮按正餐约 ¥100/人并穿插民宿做饭；岛内公交优先、必要时短途拼车，贵景点可替换为免费海岸与步道。",
+    perPersonBudget: "¥6,000 / 人（包含往返济州机票）",
+    roundTripFlightPerPerson: "待填写实际含税票价（含托运行李）",
+    summary: "六人总预算约 ¥36,000（¥6,000/人，包含往返济州机票）；机票价格确认后，再分配住宿、餐饮、交通、游玩和机动金。餐饮仍按正餐约 ¥100/人并可穿插民宿做饭，岛内交通公交优先、必要时短途拼车。",
     stay: { name: "未选择", address: "待补充", capacity: "6 人", roomsBeds: "优先整租并确认厨房可用", twoNightTotal: "六人两晚约 ¥1,800–3,000", checkInOut: "待补充", barbecue: "非硬性条件", bbqEquipment: "按需确认", breakfast: "民宿简餐或附近早餐", sourceUrl: "" },
     itinerary: [],
     reservations: [],
@@ -490,6 +492,7 @@ export default function Home() {
   const budgetInputKey = useMemo(() => JSON.stringify({
     dates: finalPlan.dates,
     target: finalPlan.perPersonBudget,
+    flight: finalPlan.roundTripFlightPerPerson,
     stay: [finalPlan.stay.twoNightTotal, finalPlan.stay.sourceUrl],
     itinerary: finalPlan.itinerary.map((item) => [item.category, item.title, item.cost]),
     candidates: realPlaces.map((place) => [place.id, place.price, place.selected]),
@@ -774,7 +777,7 @@ export default function Home() {
         <section className="decision-strip"><div className="shell progress-shell"><div className="progress-heading"><strong>{finalProgress.confirmed}/{finalProgress.groups.length}</strong><span>关键环节已确定</span></div><div className="progress-groups">{finalProgress.groups.map((item) => <div className={item.ready ? "ready" : "pending"} key={item.key}><i /> <span>{item.label}</span><small>{item.note}</small></div>)}</div><p>这里按日期、住宿、餐饮、活动、预算和预订的真实完成情况计算，不再按文字字段凑数。</p>{canManage ? <button className="small-button" onClick={() => setActiveTab("manage")}>主电脑管理</button> : <button className="small-button" onClick={() => setActiveTab("collect")}>继续补充</button>}</div></section>
 
         <section className="shell budget-advisor-section">
-          <header className="budget-advisor-heading"><div><p className="eyebrow">AI 预算助手</p><h2>预算变动后，自动告诉你哪里过高或过低</h2><p>只按当前 Excel 中已填的预算、住宿和行程费用分析；未核实价格会明确标记。</p></div><button className="small-button" onClick={refreshBudgetAdvice} disabled={budgetAdviceLoading}>{budgetAdviceLoading ? "AI 分析中……" : "刷新建议"}</button></header>
+          <header className="budget-advisor-heading"><div><p className="eyebrow">AI 预算助手</p><h2>¥6,000/人包含机票，自动判断各项该增还是该减</h2><p>AI 会区分总预算和当前已知花费；机票、住宿或活动价格未确认时会明确标记，不会把账面差额误当成机动金。</p></div><button className="small-button" onClick={refreshBudgetAdvice} disabled={budgetAdviceLoading}>{budgetAdviceLoading ? "AI 分析中……" : "刷新建议"}</button></header>
           {!budgetAdvice && <div className="budget-advisor-loading">{budgetAdviceLoading ? "正在读取当前预算并生成建议……" : "预算资料更新后，建议会显示在这里。"}</div>}
           {budgetAdvice && <div className="budget-advice-body">
             <div className="budget-overview"><div><span>{budgetAdvice.source === "ai" ? budgetAdvice.provider : "基础预算规则"}</span><h3>{budgetAdvice.headline}</h3><p>{budgetAdvice.summary}</p></div><b className={`budget-status ${budgetTone(budgetAdvice.overallStatus)}`}>{budgetAdvice.overallStatus}</b></div>
@@ -1065,6 +1068,7 @@ function PlanEditor({ plan, saving, onChange, onCancel, onSave }: {
             <EditorField label="同行人数" value={plan.people} inputType="number" onChange={(value) => updatePlan("people", Number(value) || 1)} />
             <EditorField label="住宿晚数" value={plan.nights} inputType="number" onChange={(value) => updatePlan("nights", Number(value) || 1)} />
             <EditorField label="人均预算" value={plan.perPersonBudget} onChange={(value) => updatePlan("perPersonBudget", value)} />
+            <EditorField label="往返机票 / 人" value={plan.roundTripFlightPerPerson} onChange={(value) => updatePlan("roundTripFlightPerPerson", value)} />
             <EditorField label="方案说明" value={plan.summary} onChange={(value) => updatePlan("summary", value)} multiline wide />
           </div>
         </section>}
