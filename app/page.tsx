@@ -190,9 +190,29 @@ type AppState = {
   capabilities?: { canManage: boolean };
 };
 
+type BudgetAdvice = {
+  headline: string;
+  overallStatus: "合理" | "偏紧" | "超出预算" | "信息不足";
+  summary: string;
+  categories: Array<{
+    name: string;
+    planned: string;
+    assessment: "偏高" | "合理" | "偏低" | "待确认";
+    suggestion: string;
+  }>;
+  reserveAdvice: string;
+  nextAction: string;
+  missingInputs: string[];
+  source: "ai" | "rules";
+  provider: string;
+  note: string;
+  fingerprint: string;
+  generatedAt: string;
+};
+
 const EMPTY_STATE: AppState = {
   project: { name: "济州岛三日旅行共创", destination: "韩国济州岛", days: 3, people: 6, budget: 0, status: "方案共创中", tagline: "六个人一起把济州岛的链接和想法整理成可执行计划。" },
-  tripProfile: { dates: "待团队确认", schedule: "3 天 2 晚 · 国际航班直达济州", groupSize: 6, nights: 2, stayPreference: "济州市区交通方便、环境舒适，适合 6 人入住并可简单做饭", barbecue: "待团队确认", breakfasts: ["民宿简餐或附近早餐", "民宿简餐或附近早餐"], activity: "东线自然景观、海岸步道与济州美食", accommodationBudget: "六人两晚约 ¥1,800–3,000" },
+  tripProfile: { dates: "2026年8月21日–23日（周五–周日）", schedule: "3 天 2 晚 · 国际航班直达济州", groupSize: 6, nights: 2, stayPreference: "济州市区交通方便、环境舒适，适合 6 人入住并可简单做饭", barbecue: "待团队确认", breakfasts: ["民宿简餐或附近早餐", "民宿简餐或附近早餐"], activity: "东线自然景观、海岸步道与济州美食", accommodationBudget: "六人两晚约 ¥1,800–3,000" },
   links: [],
   places: [],
   itinerary: { day0: [], day1: [], day2: [] },
@@ -201,7 +221,7 @@ const EMPTY_STATE: AppState = {
     version: "excel-home-v1",
     title: "我的出行共创项目",
     destination: "待确定目的地",
-    dates: "待团队确认",
+    dates: "2026年8月21日–23日（周五–周日）",
     schedule: "3 天 2 晚 · 国际航班直达济州",
     people: 6,
     nights: 2,
@@ -234,6 +254,13 @@ function statusTone(status: string) {
   if (["处理失败", "需要人工补充", "未整理", "读取失败", "读取受限", "文字解析失败", "待补充", "待确认", "待预订", "待核实"].includes(status)) return "warning";
   if (["正在读取", "AI分析中", "整理中", "等待读取", "等待处理", "部分核实"].includes(status)) return "active";
   return "muted";
+}
+
+function budgetTone(status: string) {
+  if (["合理"].includes(status)) return "good";
+  if (["偏高", "超出预算"].includes(status)) return "high";
+  if (["偏低"].includes(status)) return "low";
+  return "pending";
 }
 
 function isPending(value: unknown) {
@@ -328,6 +355,9 @@ export default function Home() {
   const [backendBase, setBackendBase] = useState("http://localhost:8887");
   const [draftPlan, setDraftPlan] = useState<FinalPlan | null>(null);
   const [savingPlan, setSavingPlan] = useState(false);
+  const [submissionNextStep, setSubmissionNextStep] = useState(false);
+  const [budgetAdvice, setBudgetAdvice] = useState<BudgetAdvice | null>(null);
+  const [budgetAdviceLoading, setBudgetAdviceLoading] = useState(false);
 
   async function refresh(silent = false) {
     try {
@@ -451,6 +481,58 @@ export default function Home() {
     rejected: realPlaces.filter((place) => place.decisionStatus === "淘汰").length,
   }), [realPlaces]);
   const comparedPlaces = useMemo(() => compareIds.map((id) => realPlaces.find((place) => place.id === id)).filter((place): place is Place => Boolean(place)), [compareIds, realPlaces]);
+  const teamParticipation = useMemo(() => {
+    const voterNames = new Set(realPlaces.flatMap((place) => Object.keys(place.votes || {})).filter((name) => name && name !== "团队成员"));
+    const currentNickname = nickname.trim();
+    const myVotes = currentNickname ? realPlaces.filter((place) => Boolean(place.votes?.[currentNickname])).length : 0;
+    return { people: Math.min(finalPlan.people, voterNames.size), myVotes };
+  }, [finalPlan.people, nickname, realPlaces]);
+  const budgetInputKey = useMemo(() => JSON.stringify({
+    dates: finalPlan.dates,
+    target: finalPlan.perPersonBudget,
+    stay: [finalPlan.stay.twoNightTotal, finalPlan.stay.sourceUrl],
+    itinerary: finalPlan.itinerary.map((item) => [item.category, item.title, item.cost]),
+    candidates: realPlaces.map((place) => [place.id, place.price, place.selected]),
+  }), [finalPlan, realPlaces]);
+
+  useEffect(() => {
+    if (!connected) return;
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      setBudgetAdviceLoading(true);
+      try {
+        const response = await fetch(`${apiBase()}/api/budget-advice`, { cache: "no-store" });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "预算建议暂时不可用");
+        if (active) setBudgetAdvice(result);
+      } catch {
+        if (active) setBudgetAdvice(null);
+      } finally {
+        if (active) setBudgetAdviceLoading(false);
+      }
+    }, 250);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [budgetInputKey, connected]);
+
+  async function refreshBudgetAdvice() {
+    setBudgetAdviceLoading(true);
+    try {
+      const response = await fetch(`${apiBase()}/api/budget-advice?refresh=1`, { cache: "no-store" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "预算建议暂时不可用");
+      setBudgetAdvice(result);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "预算建议暂时不可用");
+    } finally {
+      setBudgetAdviceLoading(false);
+    }
+  }
+
+  function openCandidateLibrary() {
+    setSourceFocus("");
+    setActiveTab("library");
+    window.setTimeout(() => document.getElementById("library-results")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  }
 
   async function submitIdeas(event: FormEvent) {
     event.preventDefault();
@@ -460,6 +542,7 @@ export default function Home() {
     if (submissionMode === "link" && !list.length) return setMessage("请先粘贴至少一个链接。");
     if (submissionMode === "text" && text.length < 3) return setMessage("请写下更具体的旅行想法。");
     if (!memberName) return setMessage("请先填写你的昵称，方便大家区分是谁提交的。");
+    setSubmissionNextStep(false);
     setSending(true);
     setMessage("");
     try {
@@ -477,6 +560,7 @@ export default function Home() {
       setMessage(submissionMode === "text"
         ? `已接收 ${result.textCreated || result.created} 条文字想法，DeepSeek 正在整理。${skipped ? `另跳过 ${skipped}。` : ""}`
         : `已接收 ${result.linkCreated || result.created} 个新链接；读取失败也会留在处理报告中。${skipped ? `另跳过 ${skipped}。` : ""}`);
+      setSubmissionNextStep(true);
       await refresh(true);
       setActiveTab("collect");
     } catch (error) {
@@ -689,6 +773,18 @@ export default function Home() {
 
         <section className="decision-strip"><div className="shell progress-shell"><div className="progress-heading"><strong>{finalProgress.confirmed}/{finalProgress.groups.length}</strong><span>关键环节已确定</span></div><div className="progress-groups">{finalProgress.groups.map((item) => <div className={item.ready ? "ready" : "pending"} key={item.key}><i /> <span>{item.label}</span><small>{item.note}</small></div>)}</div><p>这里按日期、住宿、餐饮、活动、预算和预订的真实完成情况计算，不再按文字字段凑数。</p>{canManage ? <button className="small-button" onClick={() => setActiveTab("manage")}>主电脑管理</button> : <button className="small-button" onClick={() => setActiveTab("collect")}>继续补充</button>}</div></section>
 
+        <section className="shell budget-advisor-section">
+          <header className="budget-advisor-heading"><div><p className="eyebrow">AI 预算助手</p><h2>预算变动后，自动告诉你哪里过高或过低</h2><p>只按当前 Excel 中已填的预算、住宿和行程费用分析；未核实价格会明确标记。</p></div><button className="small-button" onClick={refreshBudgetAdvice} disabled={budgetAdviceLoading}>{budgetAdviceLoading ? "AI 分析中……" : "刷新建议"}</button></header>
+          {!budgetAdvice && <div className="budget-advisor-loading">{budgetAdviceLoading ? "正在读取当前预算并生成建议……" : "预算资料更新后，建议会显示在这里。"}</div>}
+          {budgetAdvice && <div className="budget-advice-body">
+            <div className="budget-overview"><div><span>{budgetAdvice.source === "ai" ? budgetAdvice.provider : "基础预算规则"}</span><h3>{budgetAdvice.headline}</h3><p>{budgetAdvice.summary}</p></div><b className={`budget-status ${budgetTone(budgetAdvice.overallStatus)}`}>{budgetAdvice.overallStatus}</b></div>
+            <div className="budget-category-grid">{budgetAdvice.categories.map((item) => <article key={item.name}><div><span>{item.name}</span><b className={`budget-assessment ${budgetTone(item.assessment)}`}>{item.assessment}</b></div><strong>{item.planned}</strong><p>{item.suggestion}</p></article>)}</div>
+            <div className="budget-action-grid"><div><span>机动金判断</span><p>{budgetAdvice.reserveAdvice}</p></div><div><span>下一步建议</span><p>{budgetAdvice.nextAction}</p></div></div>
+            {budgetAdvice.missingInputs.length > 0 && <details className="budget-missing"><summary>还缺 {budgetAdvice.missingInputs.length} 类真实价格</summary><p>{budgetAdvice.missingInputs.join(" · ")}</p></details>}
+            <small className="budget-source-note">{budgetAdvice.note || `由 ${budgetAdvice.provider} 根据当前资料分析，不代表实时市场价。`}</small>
+          </div>}
+        </section>
+
         <section className="shell essentials-section">
           <div className="simple-section-title"><div><p className="eyebrow">STAY · CHECK</p><h2>先把住哪里定下来</h2></div><span>济州橘标记的内容还等大家确认</span></div>
           <div className="essentials-grid">
@@ -725,6 +821,7 @@ export default function Home() {
           </form>
           <aside className="pipeline-card"><span className="paper-tag">提交后会发生什么</span><h3>原话保留，条件拆开</h3>{["链接或原始文字先进入投递台账", "DeepSeek 识别分类、预算和关键偏好", "结构化结果进入候选表，等待团队筛选"].map((item, index) => <div className="pipeline-step" key={item}><b>{String(index + 1).padStart(2, "0")}</b><span>{item}</span></div>)}<p className="pipeline-note">Excel 同时保留原始诉求与 AI 整理结果，方便以后核对和继续补充。</p></aside>
         </div>
+        {submissionNextStep && <div className="submission-next-step"><div><span>投递已收到</span><h2>下一步：去看真实候选并投票</h2><p>DeepSeek 可能仍在整理新内容；已有候选可以先看，新结果完成后会自动出现。</p></div><div><button className="primary" onClick={openCandidateLibrary}>去候选页投票 →</button><button className="small-button" onClick={() => setSubmissionNextStep(false)}>留在这里看进度</button></div></div>}
         <div className="task-panel"><div className="panel-heading"><div><h2>投递处理中心</h2><p>一眼区分“正在处理、需要补充、已经完成”，并能看到每条投递生成了多少个结果。</p></div><button className="small-button" onClick={() => refresh()}>刷新状态</button></div><div className="task-groups">
           {state.links.length === 0 && <div className="empty-state">还没有团队投递。粘贴链接或写下第一个想法后，处理过程会显示在这里。</div>}
           {([[
@@ -755,12 +852,9 @@ export default function Home() {
 
         {sourceFocus && <div className="source-focus-banner"><div><strong>正在查看同一条投递生成的结果</strong><span>下面只显示这条来源拆出的团队诉求、攻略资料和真实地点。</span></div><button className="small-button" onClick={() => setSourceFocus("")}>清除来源筛选</button></div>}
 
-        {(requirements.length > 0 || guides.length > 0) && <div className="reference-sections">
-          {requirements.length > 0 && <details className="reference-group requirement-group" open><summary><span>团队诉求</span><b>{requirements.length}</b><small>这些是“想要什么”，不能投票当作真实商户</small></summary><div className="reference-grid">{requirements.map((place) => <ReferenceCard key={place.id} place={place} canManage={canManage} editing={editingPlaceId === place.id} onEdit={() => setEditingPlaceId(place.id)} onCancel={() => setEditingPlaceId("")} onSave={savePlaceEdit} />)}</div></details>}
-          {guides.length > 0 && <details className="reference-group guide-group" open><summary><span>攻略资料</span><b>{guides.length}</b><small>这是来源线索，不等于已经核实过的店或地点</small></summary><div className="reference-grid">{guides.map((place) => <ReferenceCard key={place.id} place={place} canManage={canManage} editing={editingPlaceId === place.id} onEdit={() => setEditingPlaceId(place.id)} onCancel={() => setEditingPlaceId("")} onSave={savePlaceEdit} />)}</div></details>}
-        </div>}
-
         <div id="library-results" className="real-candidate-heading"><div><p className="eyebrow">真实地点</p><h2>比较具体民宿、餐厅和活动</h2></div><div className="nickname-inline"><label htmlFor="voter-name">我的昵称（必填）</label><input id="voter-name" value={nickname} onChange={(event) => rememberNickname(event.target.value)} placeholder="例如：小王" maxLength={20} aria-required="true" /></div></div>
+
+        <div className="participation-strip"><div><span>团队参与</span><strong>{teamParticipation.people}/{finalPlan.people} 人</strong><small>至少对一个真实候选表过态</small></div><div><span>我的进度</span><strong>{nickname.trim() ? `${teamParticipation.myVotes} 个候选` : "先填昵称"}</strong><small>{nickname.trim() ? "同一昵称的投票会继续累计" : "填写后会自动记住你的参与记录"}</small></div></div>
 
         <div className="candidate-notice candidate-mode"><div><strong>{showAllCandidates ? "正在查看全部真实候选" : "智能收起已开启"}</strong><span>{showAllCandidates ? "包括待比较和已淘汰地点。每张卡片都会明确显示核实状态。" : "每类最多显示 3 个重点地点；已淘汰内容默认隐藏。"}</span></div><button className="small-button" onClick={() => setShowAllCandidates((value) => !value)}>{showAllCandidates ? "收起，只看重点" : `查看全部 ${focusedRealPlaces.length} 个地点`}</button></div>
 
@@ -788,6 +882,11 @@ export default function Home() {
           <div className="card-link-row">{place.details.address && !isPending(place.details.address) && <a href={mapSearchUrl(place.details.address, destination)} target="_blank" rel="noreferrer">地图</a>}{place.sourceUrl && <a href={place.sourceUrl} target="_blank" rel="noreferrer">原始链接</a>}</div>
         </article>})}</div>
         {!filteredPlaces.length && <div className="empty-state">当前筛选下没有真实地点。团队诉求和攻略资料不会混进这里。</div>}
+
+        {(requirements.length > 0 || guides.length > 0) && <section className="reference-library"><div className="simple-section-title"><div><p className="eyebrow">参考资料</p><h2>团队诉求和攻略线索</h2></div><span>默认收起，不挡住真实候选和投票</span></div><div className="reference-sections">
+          {requirements.length > 0 && <details className="reference-group requirement-group" open={sourceFocus ? true : undefined}><summary><span>团队诉求</span><b>{requirements.length}</b><small>这些是“想要什么”，不能投票当作真实商户</small></summary><div className="reference-grid">{requirements.map((place) => <ReferenceCard key={place.id} place={place} canManage={canManage} editing={editingPlaceId === place.id} onEdit={() => setEditingPlaceId(place.id)} onCancel={() => setEditingPlaceId("")} onSave={savePlaceEdit} />)}</div></details>}
+          {guides.length > 0 && <details className="reference-group guide-group" open={sourceFocus ? true : undefined}><summary><span>攻略资料</span><b>{guides.length}</b><small>这是来源线索，不等于已经核实过的店或地点</small></summary><div className="reference-grid">{guides.map((place) => <ReferenceCard key={place.id} place={place} canManage={canManage} editing={editingPlaceId === place.id} onEdit={() => setEditingPlaceId(place.id)} onCancel={() => setEditingPlaceId("")} onSave={savePlaceEdit} />)}</div></details>}
+        </div></section>}
       </section>}
 
       {displayTab === "manage" && canManage && <section className="shell workspace-page manage-page">

@@ -1212,7 +1212,7 @@
       ],
       "area": "济州市区",
       "price": null,
-      "priceLabel": "预算待团队确认",
+      "priceLabel": "待具体日期和酒店确认",
       "duration": "2 晚",
       "summary": "优先济州市区或机场交通方便区域，6 人连住两晚；具体房型、总价和取消政策必须由真实链接确认。",
       "tags": [
@@ -1308,7 +1308,9 @@
         "ticketInfo": "待核实",
         "recommendedDuration": "待核实"
       },
-      "manualOverrides": {}
+      "manualOverrides": {
+        "priceLabel": "待具体日期和酒店确认"
+      }
     },
     {
       "id": "requirement-black-pork",
@@ -1711,11 +1713,11 @@
   "settings": {
     "provider": "DeepSeek · deepseek-v4-flash",
     "workbookPath": "outputs/019fa660-42f1-74a1-ab98-31c99abb6300/韩国济州岛旅行共创.xlsx",
-    "lastExcelSync": "2026-07-28T14:25:50.917Z"
+    "lastExcelSync": "2026-07-29T02:39:00.193Z"
   },
   "tripProfile": {
     "planVersion": "three-day-v1",
-    "dates": "待团队确认",
+    "dates": "2026年8月21日–23日（周五–周日）",
     "schedule": "3 天 2 晚 · 国际航班直达济州",
     "groupSize": 6,
     "nights": 2,
@@ -1731,12 +1733,12 @@
   "reservations": [
     {
       "id": "reserve-dates-flight",
-      "item": "确定日期与国际直达济州往返航班",
+      "item": "预订国际直达济州往返航班",
       "type": "机票",
       "targetTime": "第 1 天抵达 · 第 3 天返程",
       "status": "待确认",
       "owner": "待认领",
-      "deadline": "优先完成",
+      "deadline": "尽快确认",
       "note": "不要购买经首尔转韩国国内线的方案；六人的去回航班与行李额需统一"
     },
     {
@@ -1756,7 +1758,7 @@
       "targetTime": "第 1 天入住 · 第 3 天退房",
       "status": "待补充真实链接",
       "owner": "待认领",
-      "deadline": "日期确认后立即",
+      "deadline": "尽快确认",
       "note": "比较房型、床型、含税总价、位置、取消政策和延迟入住限制"
     },
     {
@@ -1794,7 +1796,7 @@
     "version": "excel-home-v1",
     "title": "6 人济州岛三日旅行共创",
     "destination": "韩国济州岛",
-    "dates": "待团队确认",
+    "dates": "2026年8月21日–23日（周五–周日）",
     "schedule": "3 天 2 晚 · 国际航班直达济州",
     "people": 6,
     "nights": 2,
@@ -2012,12 +2014,12 @@
     "reservations": [
       {
         "id": "reserve-dates-flight",
-        "item": "确定日期与国际直达济州往返航班",
+        "item": "预订国际直达济州往返航班",
         "type": "机票",
         "targetTime": "第 1 天抵达 · 第 3 天返程",
         "status": "待确认",
         "owner": "待认领",
-        "deadline": "优先完成",
+        "deadline": "尽快确认",
         "note": "不要购买经首尔转韩国国内线的方案；六人的去回航班与行李额需统一"
       },
       {
@@ -2037,7 +2039,7 @@
         "targetTime": "第 1 天入住 · 第 3 天退房",
         "status": "待补充真实链接",
         "owner": "待认领",
-        "deadline": "日期确认后立即",
+        "deadline": "尽快确认",
         "note": "比较房型、床型、含税总价、位置、取消政策和延迟入住限制"
       },
       {
@@ -2071,6 +2073,6 @@
         "note": "优先免费海岸、市场和步道；城山可选免费海岸段，贵景点不强制保留"
       }
     ],
-    "updatedAt": "2026-07-28T08:29:37.467Z"
+    "updatedAt": "2026-07-29T02:39:00.186Z"
   }
 }
