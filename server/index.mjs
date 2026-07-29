@@ -2476,8 +2476,9 @@ function createTravelServer(accessMode) {
         ...(typeof body.text === "string" ? [body.text] : []),
       ].map((item) => String(item || "").trim()).filter(Boolean).slice(0, 10);
       if (!incomingUrls.length && !incomingTexts.length) return sendJson(response, 400, { error: "请提交至少一个链接，或写下一段旅行诉求" });
+      const submitter = String(body.submitter || "").trim().slice(0, 40);
+      if (!submitter || submitter === "团队成员") return sendJson(response, 400, { error: "请先填写团队昵称" });
       const state = await readState();
-      const submitter = String(body.submitter || "团队成员").slice(0, 40);
       const existingUrls = new Set(state.links.map((item) => item.url).filter(Boolean));
       const existingTexts = new Set(state.links
         .filter((item) => item.sourceType === "文字" && item.inputText)

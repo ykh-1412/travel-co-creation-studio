@@ -309,8 +309,8 @@ export default function Home() {
   const [urls, setUrls] = useState("");
   const [ideaText, setIdeaText] = useState("");
   const [category, setCategory] = useState("自动识别");
-  const [submitter, setSubmitter] = useState("团队成员");
-  const [nickname, setNickname] = useState("团队成员");
+  const [submitter, setSubmitter] = useState("");
+  const [nickname, setNickname] = useState("");
   const [note, setNote] = useState("");
   const [sending, setSending] = useState(false);
   const [connected, setConnected] = useState(false);
@@ -343,7 +343,8 @@ export default function Home() {
 
   useEffect(() => {
     const initial = window.setTimeout(() => {
-      const savedNickname = window.localStorage.getItem("travel-team-nickname") || window.localStorage.getItem("yangzhou-team-nickname") || "团队成员";
+      const storedNickname = window.localStorage.getItem("travel-team-nickname") || window.localStorage.getItem("yangzhou-team-nickname") || "";
+      const savedNickname = storedNickname.trim() === "团队成员" ? "" : storedNickname.slice(0, 20);
       setNickname(savedNickname);
       setSubmitter(savedNickname);
       setBackendBase(apiBase());
@@ -360,8 +361,14 @@ export default function Home() {
   function rememberNickname(value: string) {
     const next = value.slice(0, 20);
     setNickname(next);
-    setSubmitter(next || "团队成员");
-    if (next.trim()) window.localStorage.setItem("travel-team-nickname", next.trim());
+    setSubmitter(next);
+    if (next.trim()) {
+      window.localStorage.setItem("travel-team-nickname", next.trim());
+      window.localStorage.removeItem("yangzhou-team-nickname");
+    } else {
+      window.localStorage.removeItem("travel-team-nickname");
+      window.localStorage.removeItem("yangzhou-team-nickname");
+    }
   }
 
   const groupedLinks = useMemo(() => ({
@@ -449,15 +456,17 @@ export default function Home() {
     event.preventDefault();
     const list = urls.split(/\n|\s+/).map((item) => item.trim()).filter(Boolean);
     const text = ideaText.trim();
+    const memberName = submitter.trim();
     if (submissionMode === "link" && !list.length) return setMessage("请先粘贴至少一个链接。");
     if (submissionMode === "text" && text.length < 3) return setMessage("请写下更具体的旅行想法。");
+    if (!memberName) return setMessage("请先填写你的昵称，方便大家区分是谁提交的。");
     setSending(true);
     setMessage("");
     try {
       const response = await fetch(`${apiBase()}/api/submissions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ urls: submissionMode === "link" ? list : [], text: submissionMode === "text" ? text : "", category, submitter, note }),
+        body: JSON.stringify({ urls: submissionMode === "link" ? list : [], text: submissionMode === "text" ? text : "", category, submitter: memberName, note }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "提交失败");
@@ -710,7 +719,7 @@ export default function Home() {
             {submissionMode === "link"
               ? <><label htmlFor="urls">链接列表</label><textarea id="urls" value={urls} onChange={(event) => setUrls(event.target.value)} placeholder={"粘贴攻略、民宿、密室或餐厅链接……\n每行一个，也可以一次粘贴多个"} /></>
               : <><label htmlFor="ideaText">你想要什么</label><textarea id="ideaText" value={ideaText} onChange={(event) => setIdeaText(event.target.value.slice(0, 4000))} placeholder={"例如：我想住济州市区交通方便的酒店，6 个人入住，两晚总价不要太高，附近最好有黑猪烤肉和早餐。"} /><div className="text-counter">{ideaText.length} / 4000</div></>}
-            <div className="form-row"><label>大概是什么<select value={category} onChange={(event) => setCategory(event.target.value)}>{categories.map((item) => <option key={item}>{item}</option>)}</select></label><label>你的昵称<input value={submitter} onChange={(event) => rememberNickname(event.target.value)} placeholder="例如：小王" /></label></div>
+            <div className="form-row"><label>大概是什么<select value={category} onChange={(event) => setCategory(event.target.value)}>{categories.map((item) => <option key={item}>{item}</option>)}</select></label><label>你的昵称（必填）<input value={submitter} onChange={(event) => rememberNickname(event.target.value)} placeholder="例如：小王" maxLength={20} aria-required="true" /></label></div>
             <label>补充说明（可选）<input value={note} onChange={(event) => setNote(event.target.value)} placeholder="例如：这是我最在意的条件，优先级比较高" /></label>
             <button className="primary wide" disabled={sending}>{sending ? "正在提交……" : submissionMode === "text" ? "交给 DeepSeek 整理" : "开始读取并整理"}</button><p className="form-hint">文字会按“团队偏好”保存，不会冒充真实商户信息；链接若需要登录或验证码，会明确标记为读取受限。</p>
           </form>
@@ -751,7 +760,7 @@ export default function Home() {
           {guides.length > 0 && <details className="reference-group guide-group" open><summary><span>攻略资料</span><b>{guides.length}</b><small>这是来源线索，不等于已经核实过的店或地点</small></summary><div className="reference-grid">{guides.map((place) => <ReferenceCard key={place.id} place={place} canManage={canManage} editing={editingPlaceId === place.id} onEdit={() => setEditingPlaceId(place.id)} onCancel={() => setEditingPlaceId("")} onSave={savePlaceEdit} />)}</div></details>}
         </div>}
 
-        <div id="library-results" className="real-candidate-heading"><div><p className="eyebrow">真实地点</p><h2>比较具体民宿、餐厅和活动</h2></div><div className="nickname-inline"><label htmlFor="voter-name">我的昵称</label><input id="voter-name" value={nickname} onChange={(event) => rememberNickname(event.target.value)} placeholder="例如：小王" maxLength={20} /></div></div>
+        <div id="library-results" className="real-candidate-heading"><div><p className="eyebrow">真实地点</p><h2>比较具体民宿、餐厅和活动</h2></div><div className="nickname-inline"><label htmlFor="voter-name">我的昵称（必填）</label><input id="voter-name" value={nickname} onChange={(event) => rememberNickname(event.target.value)} placeholder="例如：小王" maxLength={20} aria-required="true" /></div></div>
 
         <div className="candidate-notice candidate-mode"><div><strong>{showAllCandidates ? "正在查看全部真实候选" : "智能收起已开启"}</strong><span>{showAllCandidates ? "包括待比较和已淘汰地点。每张卡片都会明确显示核实状态。" : "每类最多显示 3 个重点地点；已淘汰内容默认隐藏。"}</span></div><button className="small-button" onClick={() => setShowAllCandidates((value) => !value)}>{showAllCandidates ? "收起，只看重点" : `查看全部 ${focusedRealPlaces.length} 个地点`}</button></div>
 
