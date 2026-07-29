@@ -45,6 +45,8 @@ let writeInProgress = false;
 let lastKnownWorkbookMtime = 0;
 let processingChain = Promise.resolve();
 let mutationChain = Promise.resolve();
+const budgetAdviceCache = new Map();
+const budgetAdvicePending = new Map();
 
 await fs.mkdir(path.dirname(dataFile), { recursive: true });
 await fs.mkdir(outputDir, { recursive: true });
@@ -839,9 +841,8 @@ function normalizeAnalysisCandidates(analysis, fallback, { sourceType = "链接"
   });
 }
 
-async function modelAnalysis(content, fallback, category, sourceType = "链接", trip = {}) {
+async function modelJsonResponse(systemPrompt, content, { maxTokens = 8_000 } = {}) {
   const provider = (process.env.AI_PROVIDER || "demo").toLowerCase();
-  const systemPrompt = systemPromptFor(category, sourceType, trip);
   if (provider === "deepseek") {
     if (!process.env.DEEPSEEK_API_KEY) throw new Error("DeepSeek 模式缺少 DEEPSEEK_API_KEY");
     const base = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
@@ -853,7 +854,7 @@ async function modelAnalysis(content, fallback, category, sourceType = "链接",
         model,
         thinking: { type: "disabled" },
         temperature: 0.2,
-        max_tokens: 8_000,
+        max_tokens: maxTokens,
         response_format: { type: "json_object" },
         messages: [{ role: "system", content: systemPrompt }, { role: "user", content }],
       }),
@@ -888,7 +889,218 @@ async function modelAnalysis(content, fallback, category, sourceType = "链接",
     const data = await response.json();
     return parseJsonFromModel(data.message?.content || "{}");
   }
-  return fallback;
+  return null;
+}
+
+async function modelAnalysis(content, fallback, category, sourceType = "链接", trip = {}) {
+  const systemPrompt = systemPromptFor(category, sourceType, trip);
+  return await modelJsonResponse(systemPrompt, content) || fallback;
+}
+
+function parseMoneyRange(value) {
+  const source = String(value || "").trim();
+  const currency = source.match(/(?:¥|￥|CNY|人民币)\s*([\d,]+(?:\.\d+)?)(?:\s*(?:-|\u2013|—|~|至|到)\s*(?:(?:¥|￥|CNY|人民币)\s*)?([\d,]+(?:\.\d+)?))?/i);
+  const contextual = source.match(/(?:预算|总价|费用|价格)[^\d]{0,12}([\d,]+(?:\.\d+)?)(?:\s*(?:-|\u2013|—|~|至|到)\s*([\d,]+(?:\.\d+)?))?/i);
+  const match = currency || contextual;
+  if (!match) return null;
+  const first = Number(String(match[1]).replace(/,/g, ""));
+  const second = Number(String(match[2] || match[1]).replace(/,/g, ""));
+  if (!Number.isFinite(first) || !Number.isFinite(second)) return null;
+  return { min: Math.min(first, second), max: Math.max(first, second) };
+}
+
+function budgetItemCategory(item) {
+  const context = `${item?.category || ""} ${item?.title || ""}`;
+  if (/早餐|午餐|晚餐|餐饮|美食|烤肉|海鲜|小吃|宵夜|咖啡|市场/.test(context)) return "餐饮";
+  if (/交通|公交|拼车|出租|机场|返程|抵达/.test(context)) return "岛内交通";
+  if (/购物|伴手礼|纪念品/.test(context)) return "购物";
+  if (/住宿|民宿|酒店|公寓/.test(context)) return "住宿";
+  return "游玩";
+}
+
+function formatYuanRange(minimum, maximum = minimum) {
+  if (!Number.isFinite(minimum) || !Number.isFinite(maximum)) return "待确认";
+  const roundedMinimum = Math.round(minimum);
+  const roundedMaximum = Math.round(maximum);
+  return roundedMinimum === roundedMaximum
+    ? `¥${roundedMinimum.toLocaleString("zh-CN")} / 人`
+    : `¥${roundedMinimum.toLocaleString("zh-CN")}–${roundedMaximum.toLocaleString("zh-CN")} / 人`;
+}
+
+function buildBudgetSnapshot(state) {
+  const finalPlan = state.finalPlan || {};
+  const people = boundedInteger(finalPlan.people || state.project?.people, 6, 1, 50);
+  const target = parseMoneyRange(finalPlan.perPersonBudget);
+  const stayTotal = parseMoneyRange(finalPlan.stay?.twoNightTotal);
+  const stay = stayTotal ? { min: stayTotal.min / people, max: stayTotal.max / people } : null;
+  const itemTotals = { "餐饮": 0, "岛内交通": 0, "游玩": 0, "购物": 0, "住宿": 0 };
+  let zeroCostItems = 0;
+  for (const item of Array.isArray(finalPlan.itinerary) ? finalPlan.itinerary : []) {
+    const cost = boundedCost(item?.cost, 0);
+    const category = budgetItemCategory(item);
+    itemTotals[category] = (itemTotals[category] || 0) + cost;
+    if (!cost && category !== "住宿") zeroCostItems += 1;
+  }
+  const itineraryTotal = Object.entries(itemTotals)
+    .filter(([name]) => name !== "住宿")
+    .reduce((total, [, value]) => total + value, 0);
+  const knownMin = itineraryTotal + (stay?.min || 0);
+  const knownMax = itineraryTotal + (stay?.max || 0);
+  const missingInputs = [];
+  if (!target) missingInputs.push("人均总预算");
+  if (!stay) missingInputs.push("住宿含税两晚总价");
+  if (!finalPlan.stay?.sourceUrl) missingInputs.push("住宿真实链接和动态价格");
+  if (zeroCostItems) missingInputs.push(`${zeroCostItems} 个行程项目的实际费用`);
+  const unpricedPlaces = (state.places || []).filter((place) => normalizeCandidateType(place.candidateType, place) === "place" && !Number.isFinite(Number(place.price))).length;
+  if (unpricedPlaces) missingInputs.push(`${unpricedPlaces} 个真实候选的动态价格`);
+  const categories = [
+    { name: "住宿", min: stay?.min || 0, max: stay?.max || 0, basis: stay ? finalPlan.stay.twoNightTotal : "待确认真实住宿" },
+    { name: "餐饮", min: itemTotals["餐饮"], max: itemTotals["餐饮"], basis: "按当前三日行程的每人费用合计" },
+    { name: "岛内交通", min: itemTotals["岛内交通"], max: itemTotals["岛内交通"], basis: "公交优先，必要时短途拼车" },
+    { name: "游玩", min: itemTotals["游玩"], max: itemTotals["游玩"], basis: "按当前景点与活动费用合计" },
+    ...(itemTotals["购物"] ? [{ name: "购物", min: itemTotals["购物"], max: itemTotals["购物"], basis: "按当前行程费用合计" }] : []),
+  ];
+  return {
+    destination: finalPlan.destination || state.project?.destination || "待确认目的地",
+    dates: finalPlan.dates || "待确认",
+    people,
+    days: Number(state.project?.days) || 3,
+    excludesFlights: /不含.*机票|机票.*不含/.test(String(finalPlan.perPersonBudget || "")),
+    target,
+    targetLabel: String(finalPlan.perPersonBudget || "待确认"),
+    known: { min: knownMin, max: knownMax },
+    categories,
+    missingInputs: [...new Set(missingInputs)].slice(0, 8),
+    strategy: String(finalPlan.summary || "").slice(0, 600),
+  };
+}
+
+function fallbackBudgetAdvice(snapshot) {
+  const targetMiddle = snapshot.target ? (snapshot.target.min + snapshot.target.max) / 2 : 0;
+  const assessments = snapshot.categories.map((category) => {
+    const middle = (category.min + category.max) / 2;
+    let assessment = "合理";
+    let suggestion = "先保留这个区间，等真实链接和含税价格补齐后再调整。";
+    if (!middle) {
+      assessment = "待确认";
+      suggestion = "当前还没有可靠金额，先补真实价格，暂不判断高低。";
+    } else if (category.name === "住宿" && targetMiddle && middle > targetMiddle * 0.42) {
+      assessment = "偏高";
+      suggestion = "住宿已占较大比例，优先比较含税总价、房型和取消政策。";
+    } else if (category.name === "住宿" && targetMiddle && middle < targetMiddle * 0.2) {
+      assessment = "偏低";
+      suggestion = "这个住宿价位可能没有包含清洁费或服务费，建议再核对。";
+    } else if (category.name === "餐饮" && middle > 450) {
+      assessment = "偏高";
+      suggestion = "餐饮超出目前“正餐约 ¥100/人”的策略，可减少一顿正式聚餐。";
+    } else if (category.name === "餐饮" && middle < 180) {
+      assessment = "偏低";
+      suggestion = "餐饮缓冲较少，如果想多吃一顿特色餐，建议多留 ¥100–200/人。";
+    } else if (category.name === "岛内交通" && middle > 250) {
+      assessment = "偏高";
+      suggestion = "交通费接近包车型方案，建议重新核对公交与短途拼车的比例。";
+    } else if (category.name === "岛内交通" && middle < 60) {
+      assessment = "偏低";
+      suggestion = "雨天、行李或公交接驳可能需要打车，建议增加小额交通机动金。";
+    } else if (category.name === "游玩" && middle < 80) {
+      assessment = "偏低";
+      suggestion = "当前是免费海岸和步道优先的省钱方案；如果后期想加付费项目，可再补预算。";
+    }
+    return { name: category.name, planned: formatYuanRange(category.min, category.max), assessment, suggestion };
+  });
+  let overallStatus = "信息不足";
+  let headline = "预算框架已建好，还需真实价格才能判断。";
+  let reserveAdvice = "先补住宿和候选的真实价格。";
+  let nextAction = "优先补住宿含税总价和主要候选价格。";
+  if (snapshot.target) {
+    const reserveLow = Math.max(0, snapshot.target.min - snapshot.known.max);
+    const reserveHigh = Math.max(0, snapshot.target.max - snapshot.known.min);
+    reserveAdvice = `按已填金额估算，每人还有约 ¥${Math.round(reserveLow).toLocaleString("zh-CN")}–${Math.round(reserveHigh).toLocaleString("zh-CN")} 可用于未定项和机动支出。`;
+    if (snapshot.known.min > snapshot.target.max) {
+      overallStatus = "超出预算";
+      const suggested = Math.ceil((snapshot.known.max + 200) / 100) * 100;
+      headline = "已知支出已超过当前预算上限。";
+      nextAction = `先删减偏高项；如果都要保留，建议将人均预算至少调到约 ¥${suggested.toLocaleString("zh-CN")}。`;
+    } else if (snapshot.known.max > snapshot.target.max || snapshot.target.min - snapshot.known.max < 150) {
+      overallStatus = "偏紧";
+      headline = "当前方案可执行，但机动金偏少。";
+      nextAction = "可先保持方案；真实价格高于现值时，再增加 ¥100–300/人或替换一个付费项目。";
+    } else if (snapshot.known.max < snapshot.target.min * 0.7) {
+      overallStatus = "信息不足";
+      headline = "已填支出明显低于预算，可能还有项目没有计入。";
+    } else {
+      overallStatus = "合理";
+      headline = "当前已知支出在预算内，仍有机动空间。";
+      nextAction = "先不增加总预算，等住宿和候选真实价格补齐后再决定。";
+    }
+  }
+  return {
+    headline,
+    overallStatus,
+    summary: `已知项目约 ${formatYuanRange(snapshot.known.min, snapshot.known.max)}，目标为 ${snapshot.targetLabel}。${snapshot.excludesFlights ? "本次不将往返济州机票计入。" : ""}`,
+    categories: assessments,
+    reserveAdvice,
+    nextAction,
+    missingInputs: snapshot.missingInputs,
+  };
+}
+
+function normalizeBudgetAdvice(value, fallback) {
+  const source = value && typeof value === "object" ? value : {};
+  const allowedAssessments = new Set(["偏高", "合理", "偏低", "待确认"]);
+  const suppliedCategories = Array.isArray(source.categories) ? source.categories : [];
+  return {
+    headline: limitedText(source.headline, fallback.headline, 160),
+    overallStatus: ["合理", "偏紧", "超出预算", "信息不足"].includes(source.overallStatus) ? source.overallStatus : fallback.overallStatus,
+    summary: limitedText(source.summary, fallback.summary, 600),
+    categories: fallback.categories.map((base) => {
+      const item = suppliedCategories.find((candidate) => candidate && candidate.name === base.name) || {};
+      return {
+        name: base.name,
+        planned: limitedText(item.planned, base.planned, 80),
+        assessment: allowedAssessments.has(item.assessment) ? item.assessment : base.assessment,
+        suggestion: limitedText(item.suggestion, base.suggestion, 300),
+      };
+    }),
+    reserveAdvice: limitedText(source.reserveAdvice, fallback.reserveAdvice, 400),
+    nextAction: limitedText(source.nextAction, fallback.nextAction, 400),
+    missingInputs: stringList(source.missingInputs, fallback.missingInputs).slice(0, 8),
+  };
+}
+
+async function generateBudgetAdvice(state, { refresh = false } = {}) {
+  const snapshot = buildBudgetSnapshot(state);
+  const fingerprint = createHash("sha256").update(JSON.stringify({ provider: providerLabel(), snapshot })).digest("hex").slice(0, 20);
+  if (refresh) budgetAdviceCache.delete(fingerprint);
+  if (budgetAdviceCache.has(fingerprint)) return budgetAdviceCache.get(fingerprint);
+  if (budgetAdvicePending.has(fingerprint)) return budgetAdvicePending.get(fingerprint);
+  const task = (async () => {
+    const fallback = fallbackBudgetAdvice(snapshot);
+    const provider = (process.env.AI_PROVIDER || "demo").toLowerCase();
+    let normalized = fallback;
+    let source = "rules";
+    let note = provider === "demo" ? "当前测试环境使用基础预算规则。" : "";
+    if (provider !== "demo") {
+      const systemPrompt = `你是六人济州岛旅行的预算助手。仅根据用户提供的当前预算、住宿和行程费用做分析，不得猜测实时市场价。未填或未核实的价格必须标为“待确认”。目标预算不包含往返济州机票时，不要把机票计入。必须说明哪一部分偏高、合理、偏低或待确认；只有已知支出或机动金真的不足时才建议提高总预算。输出严格 JSON：headline, overallStatus(合理|偏紧|超出预算|信息不足), summary, categories(数组，每项 name, planned, assessment(偏高|合理|偏低|待确认), suggestion), reserveAdvice, nextAction, missingInputs(字符串数组)。`;
+      try {
+        const result = await modelJsonResponse(systemPrompt, JSON.stringify(snapshot), { maxTokens: 2_400 });
+        normalized = normalizeBudgetAdvice(result, fallback);
+        source = "ai";
+      } catch (error) {
+        note = `AI 暂时未返回，已使用基础预算规则。${error instanceof Error ? ` ${error.message}` : ""}`.slice(0, 220);
+      }
+    }
+    const advice = { ...normalized, source, provider: providerLabel(), note, fingerprint, generatedAt: new Date().toISOString() };
+    budgetAdviceCache.set(fingerprint, advice);
+    if (budgetAdviceCache.size > 20) budgetAdviceCache.delete(budgetAdviceCache.keys().next().value);
+    return advice;
+  })();
+  budgetAdvicePending.set(fingerprint, task);
+  try {
+    return await task;
+  } finally {
+    budgetAdvicePending.delete(fingerprint);
+  }
 }
 
 function demoAnalysis(title, text, category, url, destination = "") {
@@ -1865,6 +2077,17 @@ function scalarCell(cell) {
   return raw ?? "";
 }
 
+function preservedItinerarySourceId(existingItems, importedItem) {
+  const items = Array.isArray(existingItems) ? existingItems : [];
+  const sourceUrl = String(importedItem?.sourceUrl || "").trim();
+  const exact = items.find((item) => normalizePlanDay(item.day) === normalizePlanDay(importedItem?.day)
+    && String(item.title || "").trim() === String(importedItem?.title || "").trim()
+    && String(item.time || "").trim() === String(importedItem?.time || "").trim());
+  if (exact?.sourceId) return exact.sourceId;
+  if (sourceUrl) return items.find((item) => String(item.sourceUrl || "").trim() === sourceUrl && item.sourceId)?.sourceId || "";
+  return "";
+}
+
 function importFinalPlanHome(workbook, state) {
   const sheet = workbook.getWorksheet("行程首页");
   if (!sheet) return false;
@@ -1894,7 +2117,7 @@ function importFinalPlanHome(workbook, state) {
       const title = String(scalarCell(row.getCell(5)) || "").trim();
       if (!day || !title || day.startsWith("四、")) continue;
       const numericCost = Number(scalarCell(row.getCell(9)));
-      itinerary.push({
+      const importedItem = {
         day,
         time: String(scalarCell(row.getCell(2)) || ""),
         endTime: String(scalarCell(row.getCell(3)) || ""),
@@ -1907,8 +2130,8 @@ function importFinalPlanHome(workbook, state) {
         bookingStatus: String(scalarCell(row.getCell(10)) || "待确认"),
         sourceUrl: String(scalarCell(row.getCell(11)) || ""),
         note: String(scalarCell(row.getCell(12)) || ""),
-        sourceId: "",
-      });
+      };
+      itinerary.push({ ...importedItem, sourceId: preservedItinerarySourceId(existing.itinerary, importedItem) });
     }
   }
   const reservations = [];
@@ -2396,6 +2619,10 @@ function createTravelServer(accessMode) {
     if (request.method === "GET" && url.pathname === "/api/state") {
       return sendJson(response, 200, await stateForClient(request));
     }
+    if (request.method === "GET" && url.pathname === "/api/budget-advice") {
+      const state = await readState();
+      return sendJson(response, 200, await generateBudgetAdvice(state, { refresh: url.searchParams.get("refresh") === "1" }));
+    }
     if (request.method === "POST" && url.pathname === "/api/final-plan") {
       if (!requireManagement(request, response)) return;
       const body = await readBody(request);
@@ -2702,11 +2929,14 @@ if (!/^(1|true|yes)$/i.test(process.env.TEST_SKIP_LISTEN || "")) {
 
 export {
   adoptCandidateIntoState,
+  buildBudgetSnapshot,
   cleanUrl,
   dedupeAnalysisCandidates,
+  fallbackBudgetAdvice,
   isBlockedNetworkAddress,
   isLocalManagerRequest,
   normalizeAnalysisCandidates,
   normalizeCandidateType,
+  preservedItinerarySourceId,
   sanitizeCandidatePatch,
 };

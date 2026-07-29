@@ -43,6 +43,14 @@ test("团队昵称默认留空，投递和投票都明确标记必填", async ()
   assert.match(source, /方便大家区分是谁提交的/);
 });
 
+test("团队流程先展示真实候选，并提供投递后引导和 AI 预算建议", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(source, /下一步：去看真实候选并投票/);
+  assert.match(source, /AI 预算助手/);
+  assert.match(source, /团队参与/);
+  assert.ok(source.indexOf('id="library-results"') < source.indexOf('className="reference-library"'));
+});
+
 test("local data and the generated workbook are present", async () => {
   const [stateText, templateText, workbook] = await Promise.all([
     readFile(new URL("../data/store.json", import.meta.url), "utf8"),
@@ -60,6 +68,7 @@ test("local data and the generated workbook are present", async () => {
   assert.equal(state.project.destination, "韩国济州岛");
   assert.equal(state.project.days, 3);
   assert.equal(state.project.people, 6);
+  assert.equal(state.finalPlan.dates, "2026年8月21日–23日（周五–周日）");
   assert.equal(state.finalPlan.perPersonBudget, "¥1,000–1,500 / 人（不含往返济州机票）");
   assert.match(state.finalPlan.summary, /正餐约 ¥100\/人/);
   assert.match(state.finalPlan.summary, /公交优先/);

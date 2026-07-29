@@ -18,12 +18,15 @@ process.env.WORKBOOK_FILE_NAME = "unit-test.xlsx";
 process.env.AI_PROVIDER = "demo";
 
 const {
+  buildBudgetSnapshot,
   cleanUrl,
   dedupeAnalysisCandidates,
+  fallbackBudgetAdvice,
   isBlockedNetworkAddress,
   isLocalManagerRequest,
   normalizeAnalysisCandidates,
   normalizeCandidateType,
+  preservedItinerarySourceId,
   sanitizeCandidatePatch,
 } = await import(`../server/index.mjs?backend-unit=${process.pid}-${Date.now()}`);
 
@@ -190,6 +193,51 @@ test("sanitizeCandidatePatch preserves verification unless explicitly edited and
   assert.deepEqual(current.manualOverrides, {});
 });
 
+test("budget advice separates known categories and never counts flights into the trip budget", () => {
+  const snapshot = buildBudgetSnapshot({
+    project: { people: 6, days: 3 },
+    finalPlan: {
+      destination: "韩国济州岛",
+      dates: "2026年8月21日–23日",
+      people: 6,
+      perPersonBudget: "¥1,000–1,500 / 人（不含往返济州机票）",
+      summary: "公交优先",
+      stay: { twoNightTotal: "六人两晚约 ¥1,800–3,000", sourceUrl: "" },
+      itinerary: [
+        { category: "晚餐", title: "黑猪烤肉", cost: 100 },
+        { category: "交通", title: "东线公交", cost: 50 },
+        { category: "景点", title: "城山日出峰", cost: 20 },
+      ],
+    },
+    places: [],
+  });
+  assert.deepEqual(snapshot.target, { min: 1000, max: 1500 });
+  assert.deepEqual(snapshot.known, { min: 470, max: 670 });
+  assert.equal(snapshot.excludesFlights, true);
+  assert.equal(snapshot.categories.find((item) => item.name === "住宿").min, 300);
+  assert.equal(snapshot.categories.find((item) => item.name === "餐饮").max, 100);
+  const advice = fallbackBudgetAdvice(snapshot);
+  assert.equal(advice.categories.length, 4);
+  assert.match(advice.summary, /不将往返济州机票计入/);
+  assert.ok(advice.missingInputs.includes("住宿真实链接和动态价格"));
+});
+
+test("Excel itinerary imports preserve their candidate source links", () => {
+  const existing = [
+    { day: "第2天", time: "10:00", title: "城山日出峰", sourceUrl: "https://example.com/seongsan", sourceId: "place-seongsan" },
+    { day: "第3天", time: "14:30", title: "国际航班返程", sourceUrl: "https://example.com/entry", sourceId: "guide-entry" },
+  ];
+  assert.equal(preservedItinerarySourceId(existing, {
+    day: "第2天", time: "10:00", title: "城山日出峰", sourceUrl: "https://example.com/seongsan",
+  }), "place-seongsan");
+  assert.equal(preservedItinerarySourceId(existing, {
+    day: "第3天", time: "15:00", title: "返程时间已调整", sourceUrl: "https://example.com/entry",
+  }), "guide-entry");
+  assert.equal(preservedItinerarySourceId(existing, {
+    day: "第1天", time: "18:00", title: "新增自由活动", sourceUrl: "",
+  }), "");
+});
+
 async function reservePorts(count) {
   const servers = [];
   try {
@@ -315,6 +363,13 @@ test("public listener is read-only even when Host is forged as localhost", { tim
     const publicStateResponse = await requestServer(publicPort, "/api/state", { headers: publicHeaders });
     assert.equal(publicStateResponse.status, 200);
     assert.equal(JSON.parse(publicStateResponse.text).capabilities.canManage, false);
+
+    const budgetAdviceResponse = await requestServer(publicPort, "/api/budget-advice", { headers: publicHeaders });
+    assert.equal(budgetAdviceResponse.status, 200, budgetAdviceResponse.text);
+    const budgetAdvice = JSON.parse(budgetAdviceResponse.text);
+    assert.equal(budgetAdvice.source, "rules");
+    assert.ok(Array.isArray(budgetAdvice.categories));
+    assert.ok(budgetAdvice.categories.some((item) => item.name === "住宿"));
 
     const pristineState = await readFile(path.join(fixtureRoot, "store.json"), "utf8");
     const unnamedSubmission = await requestServer(publicPort, "/api/submissions", {
