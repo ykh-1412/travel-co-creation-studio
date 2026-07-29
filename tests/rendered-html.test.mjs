@@ -69,7 +69,10 @@ test("local data and the generated workbook are present", async () => {
   assert.equal(state.project.days, 3);
   assert.equal(state.project.people, 6);
   assert.equal(state.finalPlan.dates, "2026年8月21日–23日（周五–周日）");
-  assert.equal(state.finalPlan.perPersonBudget, "¥1,000–1,500 / 人（不含往返济州机票）");
+  assert.equal(state.project.budget, 6000);
+  assert.equal(state.finalPlan.perPersonBudget, "¥6,000 / 人（包含往返济州机票）");
+  assert.equal(state.finalPlan.roundTripFlightPerPerson, "待填写实际含税票价（含托运行李）");
+  assert.match(state.finalPlan.summary, /¥36,000/);
   assert.match(state.finalPlan.summary, /正餐约 ¥100\/人/);
   assert.match(state.finalPlan.summary, /公交优先/);
   assert.ok(state.finalPlan.itinerary.some((item) => item.title === "济州市区出发 · 东线公交"));

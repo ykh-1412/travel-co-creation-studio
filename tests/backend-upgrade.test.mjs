@@ -193,14 +193,15 @@ test("sanitizeCandidatePatch preserves verification unless explicitly edited and
   assert.deepEqual(current.manualOverrides, {});
 });
 
-test("budget advice separates known categories and never counts flights into the trip budget", () => {
+test("budget advice treats the 6000 yuan target as including round-trip flights", () => {
   const snapshot = buildBudgetSnapshot({
     project: { people: 6, days: 3 },
     finalPlan: {
       destination: "韩国济州岛",
       dates: "2026年8月21日–23日",
       people: 6,
-      perPersonBudget: "¥1,000–1,500 / 人（不含往返济州机票）",
+      perPersonBudget: "¥6,000 / 人（包含往返济州机票）",
+      roundTripFlightPerPerson: "待填写实际含税票价（含托运行李）",
       summary: "公交优先",
       stay: { twoNightTotal: "六人两晚约 ¥1,800–3,000", sourceUrl: "" },
       itinerary: [
@@ -211,15 +212,41 @@ test("budget advice separates known categories and never counts flights into the
     },
     places: [],
   });
-  assert.deepEqual(snapshot.target, { min: 1000, max: 1500 });
+  assert.deepEqual(snapshot.target, { min: 6000, max: 6000 });
   assert.deepEqual(snapshot.known, { min: 470, max: 670 });
-  assert.equal(snapshot.excludesFlights, true);
+  assert.equal(snapshot.includesFlights, true);
+  assert.equal(snapshot.excludesFlights, false);
+  assert.equal(snapshot.flight, null);
+  assert.equal(snapshot.categories[0].name, "往返机票");
   assert.equal(snapshot.categories.find((item) => item.name === "住宿").min, 300);
   assert.equal(snapshot.categories.find((item) => item.name === "餐饮").max, 100);
   const advice = fallbackBudgetAdvice(snapshot);
-  assert.equal(advice.categories.length, 4);
-  assert.match(advice.summary, /不将往返济州机票计入/);
+  assert.equal(advice.categories.length, 5);
+  assert.equal(advice.categories[0].planned, "待确认");
+  assert.equal(advice.overallStatus, "信息不足");
+  assert.match(advice.summary, /将往返济州机票计入总预算/);
+  assert.match(advice.reserveAdvice, /不能把账面差额全部视为机动金/);
+  assert.ok(advice.missingInputs.includes("往返济州机票人均含税价格（含行李）"));
   assert.ok(advice.missingInputs.includes("住宿真实链接和动态价格"));
+
+  const withFlight = buildBudgetSnapshot({
+    project: { people: 6, days: 3 },
+    finalPlan: {
+      destination: "韩国济州岛",
+      people: 6,
+      perPersonBudget: "¥6,000 / 人（包含往返济州机票）",
+      roundTripFlightPerPerson: "¥2,800 / 人（含税及托运行李）",
+      stay: { twoNightTotal: "六人两晚约 ¥1,800–3,000", sourceUrl: "" },
+      itinerary: [
+        { category: "晚餐", title: "黑猪烤肉", cost: 100 },
+        { category: "交通", title: "东线公交", cost: 50 },
+        { category: "景点", title: "城山日出峰", cost: 20 },
+      ],
+    },
+    places: [],
+  });
+  assert.deepEqual(withFlight.flight, { min: 2800, max: 2800 });
+  assert.deepEqual(withFlight.known, { min: 3270, max: 3470 });
 });
 
 test("Excel itinerary imports preserve their candidate source links", () => {

@@ -299,6 +299,7 @@ function sanitizeFinalPlan(input, current) {
     people: boundedInteger(source.people, boundedInteger(previous.people, 4, 1, 50), 1, 50),
     nights: boundedInteger(source.nights, boundedInteger(previous.nights, 2, 1, 30), 1, 30),
     perPersonBudget: submittedText(source, "perPersonBudget", previous.perPersonBudget || "待团队确认", 80),
+    roundTripFlightPerPerson: submittedText(source, "roundTripFlightPerPerson", previous.roundTripFlightPerPerson || "待填写实际含税票价（含托运行李）", 120),
     summary: submittedText(source, "summary", previous.summary || "", 1_000),
     stay: {
       name: submittedText(stay, "name", previousStay.name || "待选择真实民宿", 160),
@@ -460,8 +461,9 @@ function normalizeState(raw) {
     schedule: state.tripProfile.schedule,
     people: state.tripProfile.groupSize,
     nights: state.tripProfile.nights,
-    perPersonBudget: "¥1,000–1,500 / 人（不含往返济州机票）",
-    summary: "国际航班直达济州，住济州市区两晚；餐饮按正餐约 ¥100/人并穿插民宿做饭，岛内公交优先、必要时短途拼车，贵景点可替换为免费海岸与步道。",
+    perPersonBudget: "¥6,000 / 人（包含往返济州机票）",
+    roundTripFlightPerPerson: "待填写实际含税票价（含托运行李）",
+    summary: "六人总预算约 ¥36,000（¥6,000/人，包含往返济州机票）；机票实际价格确认后，再由 AI 分配住宿、餐饮、岛内交通、游玩和机动金。餐饮仍按正餐约 ¥100/人并可穿插民宿做饭，岛内交通公交优先、必要时短途拼车。",
     stay: {
       name: "待选择真实民宿",
       address: "待补充民宿详细地址",
@@ -931,6 +933,10 @@ function buildBudgetSnapshot(state) {
   const finalPlan = state.finalPlan || {};
   const people = boundedInteger(finalPlan.people || state.project?.people, 6, 1, 50);
   const target = parseMoneyRange(finalPlan.perPersonBudget);
+  const budgetLabel = String(finalPlan.perPersonBudget || "");
+  const excludesFlights = /不含.*机票|机票.*不含/.test(budgetLabel);
+  const includesFlights = !excludesFlights && /(?:包含|含).{0,12}机票|机票.{0,12}(?:包含|含)/.test(budgetLabel);
+  const flight = includesFlights ? parseMoneyRange(finalPlan.roundTripFlightPerPerson) : null;
   const stayTotal = parseMoneyRange(finalPlan.stay?.twoNightTotal);
   const stay = stayTotal ? { min: stayTotal.min / people, max: stayTotal.max / people } : null;
   const itemTotals = { "餐饮": 0, "岛内交通": 0, "游玩": 0, "购物": 0, "住宿": 0 };
@@ -944,16 +950,18 @@ function buildBudgetSnapshot(state) {
   const itineraryTotal = Object.entries(itemTotals)
     .filter(([name]) => name !== "住宿")
     .reduce((total, [, value]) => total + value, 0);
-  const knownMin = itineraryTotal + (stay?.min || 0);
-  const knownMax = itineraryTotal + (stay?.max || 0);
+  const knownMin = itineraryTotal + (stay?.min || 0) + (flight?.min || 0);
+  const knownMax = itineraryTotal + (stay?.max || 0) + (flight?.max || 0);
   const missingInputs = [];
   if (!target) missingInputs.push("人均总预算");
+  if (includesFlights && !flight) missingInputs.push("往返济州机票人均含税价格（含行李）");
   if (!stay) missingInputs.push("住宿含税两晚总价");
   if (!finalPlan.stay?.sourceUrl) missingInputs.push("住宿真实链接和动态价格");
   if (zeroCostItems) missingInputs.push(`${zeroCostItems} 个行程项目的实际费用`);
   const unpricedPlaces = (state.places || []).filter((place) => normalizeCandidateType(place.candidateType, place) === "place" && !Number.isFinite(Number(place.price))).length;
   if (unpricedPlaces) missingInputs.push(`${unpricedPlaces} 个真实候选的动态价格`);
   const categories = [
+    ...(includesFlights ? [{ name: "往返机票", min: flight?.min || 0, max: flight?.max || 0, basis: flight ? finalPlan.roundTripFlightPerPerson : "待填写实际含税票价（含行李）" }] : []),
     { name: "住宿", min: stay?.min || 0, max: stay?.max || 0, basis: stay ? finalPlan.stay.twoNightTotal : "待确认真实住宿" },
     { name: "餐饮", min: itemTotals["餐饮"], max: itemTotals["餐饮"], basis: "按当前三日行程的每人费用合计" },
     { name: "岛内交通", min: itemTotals["岛内交通"], max: itemTotals["岛内交通"], basis: "公交优先，必要时短途拼车" },
@@ -965,7 +973,9 @@ function buildBudgetSnapshot(state) {
     dates: finalPlan.dates || "待确认",
     people,
     days: Number(state.project?.days) || 3,
-    excludesFlights: /不含.*机票|机票.*不含/.test(String(finalPlan.perPersonBudget || "")),
+    includesFlights,
+    excludesFlights,
+    flight,
     target,
     targetLabel: String(finalPlan.perPersonBudget || "待确认"),
     known: { min: knownMin, max: knownMax },
@@ -984,6 +994,11 @@ function fallbackBudgetAdvice(snapshot) {
     if (!middle) {
       assessment = "待确认";
       suggestion = "当前还没有可靠金额，先补真实价格，暂不判断高低。";
+    } else if (category.name === "往返机票" && targetMiddle && middle > targetMiddle * 0.55) {
+      assessment = "偏高";
+      suggestion = "机票已占人均总预算的一半以上；先核对是否含税、行李额和退改签，再决定是否压缩其他项目。";
+    } else if (category.name === "往返机票") {
+      suggestion = "核对含税总价、托运行李额和退改签规则，确认后再分配其余预算。";
     } else if (category.name === "住宿" && targetMiddle && middle > targetMiddle * 0.42) {
       assessment = "偏高";
       suggestion = "住宿已占较大比例，优先比较含税总价、房型和取消政策。";
@@ -1006,7 +1021,10 @@ function fallbackBudgetAdvice(snapshot) {
       assessment = "偏低";
       suggestion = "当前是免费海岸和步道优先的省钱方案；如果后期想加付费项目，可再补预算。";
     }
-    return { name: category.name, planned: formatYuanRange(category.min, category.max), assessment, suggestion };
+    const planned = category.name === "往返机票" && !snapshot.flight
+      ? "待确认"
+      : formatYuanRange(category.min, category.max);
+    return { name: category.name, planned, assessment, suggestion };
   });
   let overallStatus = "信息不足";
   let headline = "预算框架已建好，还需真实价格才能判断。";
@@ -1033,11 +1051,17 @@ function fallbackBudgetAdvice(snapshot) {
       headline = "当前已知支出在预算内，仍有机动空间。";
       nextAction = "先不增加总预算，等住宿和候选真实价格补齐后再决定。";
     }
+    if (snapshot.includesFlights && !snapshot.flight) {
+      overallStatus = "信息不足";
+      headline = "人均 ¥6,000 总预算已明确，先补机票价格再分配。";
+      reserveAdvice = "往返机票包含在 ¥6,000/人的总预算内，但实际票价尚未填写；现在不能把账面差额全部视为机动金。";
+      nextAction = "先填写每人的往返机票含税价和行李费用，再判断住宿、餐饮、交通和游玩可以增加多少。";
+    }
   }
   return {
     headline,
     overallStatus,
-    summary: `已知项目约 ${formatYuanRange(snapshot.known.min, snapshot.known.max)}，目标为 ${snapshot.targetLabel}。${snapshot.excludesFlights ? "本次不将往返济州机票计入。" : ""}`,
+    summary: `已知项目约 ${formatYuanRange(snapshot.known.min, snapshot.known.max)}，目标为 ${snapshot.targetLabel}。${snapshot.includesFlights ? "本次将往返济州机票计入总预算。" : snapshot.excludesFlights ? "本次不将往返济州机票计入。" : ""}`,
     categories: assessments,
     reserveAdvice,
     nextAction,
@@ -1045,27 +1069,36 @@ function fallbackBudgetAdvice(snapshot) {
   };
 }
 
-function normalizeBudgetAdvice(value, fallback) {
+function normalizeBudgetAdvice(value, fallback, snapshot) {
   const source = value && typeof value === "object" ? value : {};
   const allowedAssessments = new Set(["偏高", "合理", "偏低", "待确认"]);
   const suppliedCategories = Array.isArray(source.categories) ? source.categories : [];
-  return {
+  const normalized = {
     headline: limitedText(source.headline, fallback.headline, 160),
     overallStatus: ["合理", "偏紧", "超出预算", "信息不足"].includes(source.overallStatus) ? source.overallStatus : fallback.overallStatus,
     summary: limitedText(source.summary, fallback.summary, 600),
     categories: fallback.categories.map((base) => {
       const item = suppliedCategories.find((candidate) => candidate && candidate.name === base.name) || {};
+      const suppliedSuggestion = limitedText(item.suggestion, base.suggestion, 300);
+      const unsupportedMarketClaim = /旺季|淡季|当地|市场(?:价|水平|通常)|在济州.{0,20}(?:合理|中等|偏高|偏低)/.test(suppliedSuggestion);
       return {
         name: base.name,
-        planned: limitedText(item.planned, base.planned, 80),
-        assessment: allowedAssessments.has(item.assessment) ? item.assessment : base.assessment,
-        suggestion: limitedText(item.suggestion, base.suggestion, 300),
+        planned: base.planned,
+        assessment: !unsupportedMarketClaim && allowedAssessments.has(item.assessment) ? item.assessment : base.assessment,
+        suggestion: unsupportedMarketClaim ? base.suggestion : suppliedSuggestion,
       };
     }),
     reserveAdvice: limitedText(source.reserveAdvice, fallback.reserveAdvice, 400),
     nextAction: limitedText(source.nextAction, fallback.nextAction, 400),
     missingInputs: stringList(source.missingInputs, fallback.missingInputs).slice(0, 8),
   };
+  if (snapshot?.includesFlights && !snapshot.flight) {
+    normalized.overallStatus = "信息不足";
+    normalized.reserveAdvice = fallback.reserveAdvice;
+    normalized.nextAction = fallback.nextAction;
+    normalized.missingInputs = fallback.missingInputs;
+  }
+  return normalized;
 }
 
 async function generateBudgetAdvice(state, { refresh = false } = {}) {
@@ -1081,10 +1114,10 @@ async function generateBudgetAdvice(state, { refresh = false } = {}) {
     let source = "rules";
     let note = provider === "demo" ? "当前测试环境使用基础预算规则。" : "";
     if (provider !== "demo") {
-      const systemPrompt = `你是六人济州岛旅行的预算助手。仅根据用户提供的当前预算、住宿和行程费用做分析，不得猜测实时市场价。未填或未核实的价格必须标为“待确认”。目标预算不包含往返济州机票时，不要把机票计入。必须说明哪一部分偏高、合理、偏低或待确认；只有已知支出或机动金真的不足时才建议提高总预算。输出严格 JSON：headline, overallStatus(合理|偏紧|超出预算|信息不足), summary, categories(数组，每项 name, planned, assessment(偏高|合理|偏低|待确认), suggestion), reserveAdvice, nextAction, missingInputs(字符串数组)。`;
+      const systemPrompt = `你是六人济州岛旅行的预算助手。仅根据用户提供的总预算、机票、住宿和行程费用做分析，不得猜测实时市场价，也不得使用“旺季”“当地中等价位”“市场通常价格”等未在输入中提供的外部判断。未填或未核实的价格必须标为“待确认”。如果目标预算包含往返机票，必须把机票作为独立类别计入；机票实际价格未填时，overallStatus 必须为“信息不足”，不得把未分配差额都称为机动金或断言预算充足。必须区分“当前已知花费”和“团队可用总预算”，说明哪一部分偏高、合理、偏低或待确认，并建议剩余预算适合增加在哪些体验；只有确认后的总支出真的不足时才建议提高总预算。输出严格 JSON：headline, overallStatus(合理|偏紧|超出预算|信息不足), summary, categories(数组，每项 name, planned, assessment(偏高|合理|偏低|待确认), suggestion), reserveAdvice, nextAction, missingInputs(字符串数组)。`;
       try {
         const result = await modelJsonResponse(systemPrompt, JSON.stringify(snapshot), { maxTokens: 2_400 });
-        normalized = normalizeBudgetAdvice(result, fallback);
+        normalized = normalizeBudgetAdvice(result, fallback, snapshot);
         source = "ai";
       } catch (error) {
         note = `AI 暂时未返回，已使用基础预算规则。${error instanceof Error ? ` ${error.message}` : ""}`.slice(0, 220);
@@ -1761,6 +1794,7 @@ function writeFinalPlanSheet(workbook, state) {
     ["同行人数", fp.people, "用于住宿、餐饮和活动人数判断"],
     ["住宿晚数", fp.nights, "当前按 3 天 2 晚设计"],
     ["人均预算", fp.perPersonBudget, "可填写数字或预算区间"],
+    ["往返机票 / 人", fp.roundTripFlightPerPerson, "填写含税、行李额后的每人实际往返票价"],
     ["方案说明", fp.summary, "网站首页的行程摘要"],
   ];
   const stayFields = [
@@ -1813,7 +1847,7 @@ function writeFinalPlanSheet(workbook, state) {
       sheet.getCell(row, column).alignment = { ...sheet.getCell(row, column).alignment, vertical: "middle", wrapText: true };
       sheet.getCell(row, column).border = { bottom: { style: "hair", color: { argb: "D7DED8" } } };
     }
-    sheet.getRow(row).height = label === "方案说明" || label === "烧烤设备 / 费用" || label === "早餐安排" ? 46 : 34;
+    sheet.getRow(row).height = label === "方案说明" ? 70 : label === "烧烤设备 / 费用" || label === "早餐安排" ? 46 : 34;
   }
 
   section(5, "一、基础信息", "网站顶部与旅行概览");
@@ -2162,6 +2196,7 @@ function importFinalPlanHome(workbook, state) {
     people: Number(field("同行人数", existing.people)) || existing.people,
     nights: Number(field("住宿晚数", existing.nights)) || existing.nights,
     perPersonBudget: field("人均预算", existing.perPersonBudget),
+    roundTripFlightPerPerson: field("往返机票 / 人", existing.roundTripFlightPerPerson || "待填写实际含税票价（含托运行李）"),
     summary: String(field("方案说明", existing.summary)),
     stay: {
       ...existing.stay,
@@ -2183,6 +2218,8 @@ function importFinalPlanHome(workbook, state) {
   state.itinerary = splitFinalItinerary(state.finalPlan.itinerary);
   state.reservations = state.finalPlan.reservations.map((item) => ({ ...item }));
   state.project.name = state.finalPlan.title;
+  const importedBudget = parseMoneyRange(state.finalPlan.perPersonBudget);
+  if (importedBudget) state.project.budget = importedBudget.max;
   state.project.destination = state.finalPlan.destination;
   state.project.people = state.finalPlan.people;
   state.tripProfile.dates = state.finalPlan.dates;
