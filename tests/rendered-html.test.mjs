@@ -48,6 +48,8 @@ test("团队流程先展示真实候选，并提供投递后引导和 AI 预算�
   assert.match(source, /下一步：去看真实候选并投票/);
   assert.match(source, /AI 预算助手/);
   assert.match(source, /团队参与/);
+  assert.match(source, /先让 AI 做初步审阅，再由你逐条决定/);
+  assert.match(source, /采纳并写入 Excel/);
   assert.ok(source.indexOf('id="library-results"') < source.indexOf('className="reference-library"'));
 });
 

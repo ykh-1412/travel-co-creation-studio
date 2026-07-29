@@ -1713,7 +1713,7 @@
   "settings": {
     "provider": "DeepSeek · deepseek-v4-flash",
     "workbookPath": "outputs/019fa660-42f1-74a1-ab98-31c99abb6300/韩国济州岛旅行共创.xlsx",
-    "lastExcelSync": "2026-07-29T03:00:04.984Z"
+    "lastExcelSync": "2026-07-29T07:17:24.236Z"
   },
   "tripProfile": {
     "planVersion": "three-day-v1",
@@ -2074,6 +2074,156 @@
         "note": "优先免费海岸、市场和步道；城山可选免费海岸段，贵景点不强制保留"
       }
     ],
-    "updatedAt": "2026-07-29T03:00:04.978Z"
-  }
+    "updatedAt": "2026-07-29T07:07:46.172Z"
+  },
+  "aiReviews": [
+    {
+      "id": "review-00111395-14eb-4f70-bb13-ac7507bd26f3",
+      "generatedAt": "2026-07-29T07:07:56.703Z",
+      "baseUpdatedAt": "2026-07-29T07:07:46.172Z",
+      "provider": "DeepSeek · deepseek-v4-flash",
+      "source": "ai",
+      "headline": "济州岛3天2晚六人度假方案：轻松为主，东线自然+市区美食",
+      "summary": "方案以轻松度假为核心，东线自然景观（城山日出峰、涉地可支）搭配市区市场与美食，公交优先，预算可控。但住宿、机票、部分餐饮未定，第3天涯月行程与返程时间存在冲突。",
+      "note": "整体框架合理，但细节待填充。建议优先确认机票和住宿，再调整行程。",
+      "suggestions": [
+        {
+          "id": "suggestion-1-f4f788da",
+          "category": "价格预测",
+          "targetType": "plan",
+          "targetId": "budget",
+          "targetLabel": "预算总览",
+          "field": "known.min",
+          "currentValue": "805",
+          "proposedValue": 805,
+          "reason": "已知费用（不含机票）约805元/人，但机票未定，总预算6000元/人，机票需控制在约5000元/人以内。",
+          "confidence": "高",
+          "evidenceType": "预算计算",
+          "status": "待处理",
+          "applyMode": "advice",
+          "appliedAt": "",
+          "appliedResult": ""
+        },
+        {
+          "id": "suggestion-2-c84d814e",
+          "category": "价格预测",
+          "targetType": "candidate",
+          "targetId": "requirement-stay",
+          "targetLabel": "济州市区六人住宿需求",
+          "field": "priceLabel",
+          "currentValue": "待具体日期和酒店确认",
+          "proposedValue": "AI估价：六人两晚约¥2,400–3,000",
+          "reason": "根据济州市区6人公寓或酒店8月旺季价格，两晚总价约2400-3000元。",
+          "confidence": "中",
+          "evidenceType": "市场调研",
+          "status": "待处理",
+          "applyMode": "advice",
+          "appliedAt": "",
+          "appliedResult": ""
+        },
+        {
+          "id": "suggestion-3-643ec59e",
+          "category": "推荐分",
+          "targetType": "candidate",
+          "targetId": "place-seongsan",
+          "targetLabel": "城山日出峰",
+          "field": "score",
+          "currentValue": "4.9",
+          "proposedValue": 4.9,
+          "reason": "经典景点，适合团队，但需注意体力与天气。",
+          "confidence": "高",
+          "evidenceType": "景点评价",
+          "status": "待处理",
+          "applyMode": "direct",
+          "appliedAt": "",
+          "appliedResult": ""
+        },
+        {
+          "id": "suggestion-4-f7e7a9f8",
+          "category": "优缺点",
+          "targetType": "plan",
+          "targetId": "trip",
+          "targetLabel": "整体方案",
+          "field": "pros",
+          "currentValue": "",
+          "proposedValue": "轻松节奏，东线自然与市区美食结合，公交优先节省费用。",
+          "reason": "方案符合团队度假需求，行程不紧凑。",
+          "confidence": "高",
+          "evidenceType": "行程分析",
+          "status": "待处理",
+          "applyMode": "advice",
+          "appliedAt": "",
+          "appliedResult": ""
+        },
+        {
+          "id": "suggestion-5-db6885fc",
+          "category": "优缺点",
+          "targetType": "plan",
+          "targetId": "trip",
+          "targetLabel": "整体方案",
+          "field": "cons",
+          "currentValue": "",
+          "proposedValue": "第3天涯月行程与返程时间冲突，若航班较早则无法完成；住宿、机票、部分餐饮未定。",
+          "reason": "涯月距机场约40分钟车程，若航班在15:00前则时间紧张。",
+          "confidence": "高",
+          "evidenceType": "时间计算",
+          "status": "待处理",
+          "applyMode": "advice",
+          "appliedAt": "",
+          "appliedResult": ""
+        },
+        {
+          "id": "suggestion-6-fe1496d9",
+          "category": "资料完整度",
+          "targetType": "plan",
+          "targetId": "trip",
+          "targetLabel": "整体方案",
+          "field": "missingFields",
+          "currentValue": "",
+          "proposedValue": "机票价格、住宿具体信息、部分餐厅、公交班次、行李寄存。",
+          "reason": "关键信息缺失，影响预算和行程可行性。",
+          "confidence": "高",
+          "evidenceType": "数据检查",
+          "status": "待处理",
+          "applyMode": "advice",
+          "appliedAt": "",
+          "appliedResult": ""
+        },
+        {
+          "id": "suggestion-7-d2e9be38",
+          "category": "建议时段",
+          "targetType": "itinerary",
+          "targetId": "itinerary-10",
+          "targetLabel": "涯月汉潭海岸散步路",
+          "field": "time",
+          "currentValue": "10:00-13:00",
+          "proposedValue": "建议调整为08:30-11:00，或根据航班时间取消",
+          "reason": "若返程航班在15:00后，可保留但需提前；若航班较早则取消。",
+          "confidence": "中",
+          "evidenceType": "时间冲突分析",
+          "status": "待处理",
+          "applyMode": "advice",
+          "appliedAt": "",
+          "appliedResult": ""
+        },
+        {
+          "id": "suggestion-8-b0bcc0e8",
+          "category": "路线冲突",
+          "targetType": "itinerary",
+          "targetId": "itinerary-10",
+          "targetLabel": "涯月汉潭海岸散步路",
+          "field": "day",
+          "currentValue": "第3天",
+          "proposedValue": "第3天行程与返程时间冲突，建议缩短或移至第1天下午（若航班早到）",
+          "reason": "第3天上午去涯月，下午返程，若航班在15:00前则无法完成。",
+          "confidence": "高",
+          "evidenceType": "时间线分析",
+          "status": "待处理",
+          "applyMode": "advice",
+          "appliedAt": "",
+          "appliedResult": ""
+        }
+      ]
+    }
+  ]
 }

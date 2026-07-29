@@ -18,13 +18,17 @@ process.env.WORKBOOK_FILE_NAME = "unit-test.xlsx";
 process.env.AI_PROVIDER = "demo";
 
 const {
+  applyAiReviewSuggestion,
   buildBudgetSnapshot,
+  buildTripReviewSnapshot,
   cleanUrl,
   dedupeAnalysisCandidates,
+  enforceAiReviewSafety,
   fallbackBudgetAdvice,
   isBlockedNetworkAddress,
   isLocalManagerRequest,
   normalizeAnalysisCandidates,
+  normalizeAiReviews,
   normalizeCandidateType,
   preservedItinerarySourceId,
   sanitizeCandidatePatch,
@@ -249,6 +253,90 @@ test("budget advice treats the 6000 yuan target as including round-trip flights"
   assert.deepEqual(withFlight.known, { min: 3270, max: 3470 });
 });
 
+test("AI trip review sees the full plan but only writes accepted candidate fields", () => {
+  const state = {
+    project: { destination: "韩国济州岛", people: 6, days: 3 },
+    tripProfile: { dates: "2026年8月21日–23日", schedule: "3天2晚" },
+    links: [{ id: "link-review", sourceType: "文字", inputText: "想看海", submitter: "小王", status: "已写入Excel" }],
+    places: [fixturePlace("place-review", "link-review", {
+      price: null,
+      priceLabel: "价格待核实",
+      score: 3.5,
+      aiCompleteness: null,
+      manualOverrides: {},
+    })],
+    finalPlan: {
+      destination: "韩国济州岛",
+      dates: "2026年8月21日–23日",
+      people: 6,
+      perPersonBudget: "¥6,000 / 人（包含往返济州机票）",
+      roundTripFlightPerPerson: "待填写实际含税票价（含托运行李）",
+      stay: { name: "待选择", twoNightTotal: "待确认", sourceUrl: "" },
+      itinerary: [{ day: "第2天", time: "10:00", title: "看海待选", category: "景点", cost: 0 }],
+      reservations: [],
+      updatedAt: "2026-07-29T00:00:00.000Z",
+    },
+  };
+  const snapshot = buildTripReviewSnapshot(state);
+  assert.equal(snapshot.trip.people, 6);
+  assert.equal(snapshot.recentRequirements[0].text, "想看海");
+  assert.equal(snapshot.candidates[0].priceLabel, "价格待核实");
+  assert.ok(snapshot.candidates[0].completeness > 0, "未生成 AI 完整度时应继续使用字段完整度，不应误写为 0% ");
+  assert.equal(snapshot.itinerary[0].title, "看海待选");
+
+  state.aiReviews = normalizeAiReviews([{
+    id: "review-test",
+    generatedAt: "2026-07-29T01:00:00.000Z",
+    headline: "初步审阅",
+    summary: "需要补充评分说明，并建议调整看海时段。",
+    suggestions: [
+      {
+        id: "suggest-score",
+        category: "候选",
+        targetType: "candidate",
+        targetId: "place-review",
+        targetLabel: "测试候选",
+        field: "aiScore",
+        currentValue: "3.5",
+        proposedValue: 4.2,
+        reason: "团队明确提出想看海",
+        confidence: "中",
+        evidenceType: "团队原话",
+        applyMode: "direct",
+      },
+      {
+        id: "suggest-day",
+        category: "行程",
+        targetType: "itinerary",
+        targetId: "第2天",
+        targetLabel: "看海待选",
+        field: "day",
+        currentValue: "第2天",
+        proposedValue: "第3天",
+        reason: "与同区域候选可顺路",
+        confidence: "低",
+        evidenceType: "行程结构",
+        applyMode: "advice",
+      },
+    ],
+  }]);
+
+  assert.equal(state.aiReviews[0].suggestions[0].field, "score");
+  assert.equal(state.aiReviews[0].suggestions[0].applyMode, "direct");
+  applyAiReviewSuggestion(state, "review-test", "suggest-score", "accept");
+  assert.equal(state.places[0].score, 4.2);
+  const itineraryBefore = JSON.stringify(state.finalPlan.itinerary);
+  const daySuggestion = applyAiReviewSuggestion(state, "review-test", "suggest-day", "accept");
+  assert.equal(JSON.stringify(state.finalPlan.itinerary), itineraryBefore);
+  assert.equal(daySuggestion.appliedResult, "已保留为人工调整事项，未自动修改正式行程");
+
+  state.places[0].manualOverrides.score = 4.8;
+  state.aiReviews[0].suggestions[0].status = "待处理";
+  assert.throws(() => applyAiReviewSuggestion(state, "review-test", "suggest-score", "accept"), /人工锁定/);
+  enforceAiReviewSafety(state);
+  assert.equal(state.aiReviews[0].suggestions[0].applyMode, "advice");
+});
+
 test("Excel itinerary imports preserve their candidate source links", () => {
   const existing = [
     { day: "第2天", time: "10:00", title: "城山日出峰", sourceUrl: "https://example.com/seongsan", sourceId: "place-seongsan" },
@@ -389,7 +477,14 @@ test("public listener is read-only even when Host is forged as localhost", { tim
     };
     const publicStateResponse = await requestServer(publicPort, "/api/state", { headers: publicHeaders });
     assert.equal(publicStateResponse.status, 200);
-    assert.equal(JSON.parse(publicStateResponse.text).capabilities.canManage, false);
+    const publicState = JSON.parse(publicStateResponse.text);
+    assert.equal(publicState.capabilities.canManage, false);
+    assert.equal(publicState.aiReviews, undefined);
+    assert.ok(publicStateResponse.headers.etag);
+    const notModifiedResponse = await requestServer(publicPort, "/api/state", { headers: { ...publicHeaders, "If-None-Match": publicStateResponse.headers.etag } });
+    assert.equal(notModifiedResponse.status, 304);
+    const compressedStateResponse = await requestServer(publicPort, "/api/state", { headers: { ...publicHeaders, "Accept-Encoding": "br" } });
+    assert.equal(compressedStateResponse.headers["content-encoding"], "br");
 
     const budgetAdviceResponse = await requestServer(publicPort, "/api/budget-advice", { headers: publicHeaders });
     assert.equal(budgetAdviceResponse.status, 200, budgetAdviceResponse.text);
@@ -423,6 +518,8 @@ test("public listener is read-only even when Host is forged as localhost", { tim
       ["DELETE", "/api/links/not-found", ""],
       ["POST", "/api/sync/from-excel", {}],
       ["POST", "/api/sync/to-excel", {}],
+      ["POST", "/api/ai-review", {}],
+      ["POST", "/api/ai-reviews/not-found/suggestions/not-found", { action: "accept" }],
     ];
 
     for (const [method, pathname, body] of managementRequests) {

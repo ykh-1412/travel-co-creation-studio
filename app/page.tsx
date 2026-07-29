@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 
 type LinkStatus = "等待处理" | "正在读取" | "AI分析中" | "已写入Excel" | "需要人工补充" | "处理失败";
@@ -118,10 +118,44 @@ type Place = {
   manualOverrides?: Record<string, unknown>;
   completeness?: number;
   keyMissing?: string[];
+  aiCompleteness?: number | null;
+  aiPriceBasis?: string;
+  aiPriceConfidence?: "高" | "中" | "低";
+  aiScoreReason?: string;
+  planningSuggestions?: string[];
+  candidateLeads?: Array<{ name: string; area: string; reason: string; confidence: "高" | "中" | "低" }>;
   sourceUrl: string;
   dataStatus: string;
   verificationStatus: string;
   details: PlaceDetails;
+};
+
+type AiReviewSuggestion = {
+  id: string;
+  category: string;
+  targetType: "candidate" | "itinerary" | "stay" | "plan" | "information";
+  targetId: string;
+  targetLabel: string;
+  field: string;
+  currentValue: string;
+  proposedValue: string | number | string[];
+  reason: string;
+  confidence: "高" | "中" | "低";
+  evidenceType: string;
+  status: "待处理" | "已采纳" | "已忽略";
+  applyMode: "direct" | "advice";
+  appliedResult?: string;
+};
+
+type AiReview = {
+  id: string;
+  generatedAt: string;
+  provider: string;
+  source: "ai" | "rules";
+  headline: string;
+  summary: string;
+  note: string;
+  suggestions: AiReviewSuggestion[];
 };
 
 type VoteChoice = "想去" | "可以" | "不考虑";
@@ -188,6 +222,7 @@ type AppState = {
   reservations: Reservation[];
   finalPlan: FinalPlan;
   settings: { provider: string; workbookPath: string; lastExcelSync: string };
+  aiReviews: AiReview[];
   capabilities?: { canManage: boolean };
 };
 
@@ -235,6 +270,7 @@ const EMPTY_STATE: AppState = {
     updatedAt: "",
   },
   settings: { provider: "演示分析", workbookPath: "", lastExcelSync: "" },
+  aiReviews: [],
   capabilities: { canManage: false },
 };
 
@@ -331,6 +367,11 @@ function clonePlan(plan: FinalPlan): FinalPlan {
   return JSON.parse(JSON.stringify(plan)) as FinalPlan;
 }
 
+function reviewValue(value: AiReviewSuggestion["proposedValue"] | string) {
+  if (Array.isArray(value)) return value.join(" · ") || "空";
+  return String(value ?? "").trim() || "空";
+}
+
 export default function Home() {
   const [state, setState] = useState<AppState>(EMPTY_STATE);
   const [activeTab, setActiveTab] = useState<TabKey>("plan");
@@ -360,12 +401,22 @@ export default function Home() {
   const [submissionNextStep, setSubmissionNextStep] = useState(false);
   const [budgetAdvice, setBudgetAdvice] = useState<BudgetAdvice | null>(null);
   const [budgetAdviceLoading, setBudgetAdviceLoading] = useState(false);
+  const [aiReviewLoading, setAiReviewLoading] = useState(false);
+  const stateEtagRef = useRef("");
 
   async function refresh(silent = false) {
     try {
-      const response = await fetch(`${apiBase()}/api/state`, { cache: "no-store" });
+      const headers: Record<string, string> = {};
+      if (stateEtagRef.current) headers["If-None-Match"] = stateEtagRef.current;
+      const response = await fetch(`${apiBase()}/api/state`, { cache: "no-store", headers });
+      if (response.status === 304) {
+        setConnected(true);
+        return;
+      }
       if (!response.ok) throw new Error("后台暂时不可用");
-      setState(await response.json());
+      stateEtagRef.current = response.headers.get("etag") || "";
+      const nextState = await response.json();
+      setState({ ...nextState, aiReviews: nextState.aiReviews || [] });
       setConnected(true);
     } catch {
       setConnected(false);
@@ -382,8 +433,12 @@ export default function Home() {
       setBackendBase(apiBase());
       refresh();
     }, 0);
-    const timer = window.setInterval(() => refresh(true), 3500);
-    return () => { window.clearTimeout(initial); window.clearInterval(timer); };
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") refresh(true);
+    }, 10_000);
+    const onVisible = () => { if (document.visibilityState === "visible") refresh(true); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { window.clearTimeout(initial); window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
   }, []);
 
   const canManage = Boolean(state.capabilities?.canManage);
@@ -482,6 +537,7 @@ export default function Home() {
     complete: realPlaces.filter((place) => (place.completeness || 0) >= 75).length,
     rejected: realPlaces.filter((place) => place.decisionStatus === "淘汰").length,
   }), [realPlaces]);
+  const latestAiReview = state.aiReviews?.[0] || null;
   const comparedPlaces = useMemo(() => compareIds.map((id) => realPlaces.find((place) => place.id === id)).filter((place): place is Place => Boolean(place)), [compareIds, realPlaces]);
   const teamParticipation = useMemo(() => {
     const voterNames = new Set(realPlaces.flatMap((place) => Object.keys(place.votes || {})).filter((name) => name && name !== "团队成员"));
@@ -565,6 +621,8 @@ export default function Home() {
         : `已接收 ${result.linkCreated || result.created} 个新链接；读取失败也会留在处理报告中。${skipped ? `另跳过 ${skipped}。` : ""}`);
       setSubmissionNextStep(true);
       await refresh(true);
+      window.setTimeout(() => refresh(true), 3_000);
+      window.setTimeout(() => refresh(true), 8_000);
       setActiveTab("collect");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "提交失败，请检查后台服务。");
@@ -705,6 +763,41 @@ export default function Home() {
       setMessage("Excel“行程首页”的最新内容已同步到网站。");
       refresh(true);
     } catch { setMessage("暂时无法读取 Excel，请确认文件没有被移动或占用。"); }
+  }
+
+  async function runAiReview() {
+    setAiReviewLoading(true);
+    setMessage("DeepSeek 正在对照完整行程和 Excel 做一次初步审阅……");
+    try {
+      const response = await fetch(`${apiBase()}/api/ai-review`, { method: "POST" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "AI 审阅暂时不可用");
+      if (result.state) setState({ ...result.state, aiReviews: result.state.aiReviews || [] });
+      else await refresh(true);
+      const suggestionCount = result.review?.suggestions?.length || 0;
+      setMessage(`AI 初步审阅完成，共给出 ${suggestionCount} 条建议。只有你逐条采纳后才会写入 Excel。`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "AI 审阅暂时不可用");
+    } finally {
+      setAiReviewLoading(false);
+    }
+  }
+
+  async function decideAiSuggestion(reviewId: string, suggestionId: string, action: "accept" | "dismiss") {
+    try {
+      const response = await fetch(`${apiBase()}/api/ai-reviews/${encodeURIComponent(reviewId)}/suggestions/${encodeURIComponent(suggestionId)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "建议处理失败");
+      if (result.state) setState({ ...result.state, aiReviews: result.state.aiReviews || [] });
+      else await refresh(true);
+      setMessage(action === "accept" ? result.suggestion.appliedResult : "这条建议已忽略，正式方案没有变化。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "建议处理失败");
+    }
   }
 
   function startPlanEditing() {
@@ -879,7 +972,7 @@ export default function Home() {
           <div className="candidate-highlight"><div><span>为什么值得看</span><strong>{place.pros[0] || "等待分析"}</strong></div><div><span>还要核实</span><strong>{place.cons[0] || "等待核实"}</strong></div></div>
           <div className="detail-grid compact-details">{details.map(([label, detail]) => <div key={label}><span>{label}</span><strong>{detail}</strong></div>)}</div>
           <div className="vote-panel"><div className="vote-summary"><strong>{votes.support}</strong><span>人想去</span><small>{votes.okay} 人可以 · {votes.reject} 人不考虑</small></div><div className="vote-buttons">{voteChoices.map((choice) => <button key={choice} className={myVote === choice ? "selected" : ""} onClick={() => voteForPlace(place.id, choice)}>{choice}</button>)}</div></div>
-          <details className="candidate-details"><summary>查看更多资料</summary><div className="place-tags">{[...new Set([place.subCategory, ...place.featureTags, ...place.tags])].map((tag) => <span key={tag}>{tag}</span>)}</div>{place.keyMissing?.length ? <p className="candidate-missing"><b>缺失项：</b>{place.keyMissing.join(" · ")}</p> : null}{place.manualNote ? <p className="candidate-manual-note"><b>人工备注：</b>{place.manualNote}</p> : null}{Object.keys(place.manualOverrides || {}).length ? <p className="candidate-manual-note"><b>人工保护：</b>{Object.keys(place.manualOverrides || {}).length} 个字段不会被重新分析覆盖</p> : null}<div className="place-footer"><div><span>参考预算</span><strong>{place.priceLabel}</strong></div><div className="score"><span>推荐度</span><strong>{place.score.toFixed(1)}</strong></div></div></details>
+          <details className="candidate-details"><summary>查看更多资料</summary><div className="place-tags">{[...new Set([place.subCategory, ...place.featureTags, ...place.tags])].map((tag) => <span key={tag}>{tag}</span>)}</div>{place.aiScoreReason ? <p className="candidate-ai-note"><b>AI评分说明：</b>{place.aiScoreReason}</p> : null}{place.aiPriceBasis ? <p className="candidate-ai-note"><b>AI估价依据：</b>{place.aiPriceBasis} · {place.aiPriceConfidence || "低"}置信</p> : null}{place.planningSuggestions?.length ? <p className="candidate-ai-note"><b>AI建议时段：</b>{place.planningSuggestions.join(" · ")}</p> : null}{place.candidateLeads?.length ? <p className="candidate-ai-note"><b>待核实线索：</b>{place.candidateLeads.map((lead) => `${lead.name}（${lead.area}）`).join(" · ")}</p> : null}{place.keyMissing?.length ? <p className="candidate-missing"><b>缺失项：</b>{place.keyMissing.join(" · ")}</p> : null}{place.manualNote ? <p className="candidate-manual-note"><b>人工备注：</b>{place.manualNote}</p> : null}{Object.keys(place.manualOverrides || {}).length ? <p className="candidate-manual-note"><b>人工保护：</b>{Object.keys(place.manualOverrides || {}).length} 个字段不会被重新分析覆盖</p> : null}<div className="place-footer"><div><span>参考预算</span><strong>{place.priceLabel}</strong></div><div className="score"><span>推荐度</span><strong>{place.score.toFixed(1)}</strong></div></div></details>
           {editingPlaceId === place.id && <CandidateEditor place={place} onCancel={() => setEditingPlaceId("")} onSave={savePlaceEdit} />}
           {canManage && editingPlaceId !== place.id && <div className="manager-card-actions"><button className="small-button" onClick={() => setEditingPlaceId(place.id)}>修改候选</button>{place.category !== "住宿" && <select aria-label="选择加入哪天行程" value={adoptDay} onChange={(event) => setAdoptDay(event.target.value as typeof adoptDay)}><option>第1天</option><option>第2天</option><option>第3天</option></select>}<button className="primary" onClick={() => adoptPlace(place)}>{place.category === "住宿" ? "采用为住宿" : `加入${adoptDay}行程`}</button></div>}
           <div className="card-link-row">{place.details.address && !isPending(place.details.address) && <a href={mapSearchUrl(place.details.address, destination)} target="_blank" rel="noreferrer">地图</a>}{place.sourceUrl && <a href={place.sourceUrl} target="_blank" rel="noreferrer">原始链接</a>}</div>
@@ -898,13 +991,21 @@ export default function Home() {
         <div className="excel-hero"><div className="excel-file-icon">X</div><div className="excel-file-info"><span>主电脑原文件</span><h2>{workbookName}</h2><p>最近保存：{formatTime(state.settings.lastExcelSync)} · 已保存到 Excel 不等于已备份到 GitHub</p></div><div className="excel-actions"><a className="primary" href={`${backendBase}/api/download/excel`}>下载 Excel 副本</a><button className="small-button" onClick={syncExcel}>读取主电脑原文件</button></div></div>
         <div className="excel-copy-warning"><strong>请注意：下载得到的是副本</strong><p>朋友下载后自行修改的文件不会自动传回。只有这台主电脑上的原始 Excel 会被网站自动读取和同步；GitHub 备份仍需单独执行。</p></div>
 
+        <section className="ai-review-panel">
+          <header><div><p className="eyebrow">DeepSeek × Excel</p><h2>先让 AI 做初步审阅，再由你逐条决定</h2><p>AI 会读取当前候选、行程和预算，补充推荐分、估价依据、资料完整度与安排建议；不会自动决定第几天，也不会替团队淘汰候选。</p></div><button className="primary" disabled={aiReviewLoading} onClick={runAiReview}>{aiReviewLoading ? "正在审阅……" : latestAiReview ? "重新审阅当前方案" : "开始 AI 初步审阅"}</button></header>
+          {latestAiReview ? <div className="ai-review-body"><div className="ai-review-summary"><div><span>{latestAiReview.source === "ai" ? "DEEPSEEK 审阅" : "基础规则检查"}</span><h3>{latestAiReview.headline}</h3><p>{latestAiReview.summary}</p></div><small>{formatTime(latestAiReview.generatedAt)} · {latestAiReview.provider}</small></div>
+            <div className="ai-suggestion-list">{latestAiReview.suggestions.length ? latestAiReview.suggestions.map((suggestion) => <article className={`ai-suggestion status-${suggestion.status}`} key={suggestion.id}><div className="ai-suggestion-heading"><div><span>{suggestion.category} · {suggestion.targetLabel}</span><h3>{suggestion.reason}</h3></div><b>{suggestion.status}</b></div><div className="ai-value-change"><div><span>现在</span><strong>{reviewValue(suggestion.currentValue)}</strong></div><i>→</i><div><span>AI 建议</span><strong>{reviewValue(suggestion.proposedValue)}</strong></div></div><div className="ai-suggestion-meta"><span>{suggestion.confidence}置信</span><span>{suggestion.applyMode === "direct" ? "采纳后写入 Excel" : "采纳后仅记为人工待办"}</span><span>{suggestion.evidenceType}</span></div>{suggestion.appliedResult ? <p className="ai-applied-result">{suggestion.appliedResult}</p> : null}{suggestion.status === "待处理" ? <div className="ai-suggestion-actions"><button className="small-button" onClick={() => decideAiSuggestion(latestAiReview.id, suggestion.id, "dismiss")}>忽略</button><button className="primary" onClick={() => decideAiSuggestion(latestAiReview.id, suggestion.id, "accept")}>{suggestion.applyMode === "direct" ? "采纳并写入 Excel" : "采纳为人工待办"}</button></div> : null}</article>) : <div className="ai-review-empty">这次没有发现需要调整的项目，可以继续人工核实真实价格和预订条件。</div>}</div>
+            {latestAiReview.note ? <p className="ai-review-note">{latestAiReview.note}</p> : null}
+          </div> : <div className="ai-review-empty">还没有审阅记录。建议先把大家的链接和文字收集一轮，再运行一次完整审阅。</div>}
+        </section>
+
         <div className="manage-choice-grid">
           <article className="recommended-choice"><span>推荐流程</span><h2>先收集想法，再补全，最后定行程</h2><p>链接和文字都会进入分类表；黄色单元格是你可以人工确认和修正的内容。</p><ol><li>在「候选决策台」按大类和子分类筛选</li><li>查看团队原始诉求，再补充真实商户信息</li><li>黄色列改过的内容会被人工保护</li><li>最后把确定内容写进「行程首页」</li></ol></article>
           <article><span>快捷编辑</span><h2>在网页中分段修改</h2><p>适合临时改时间、负责人或民宿信息。编辑器会提示未保存内容，保存后写回主电脑 Excel。</p><button className="small-button" onClick={startPlanEditing}>打开网页编辑器</button></article>
         </div>
 
-        <div className="simple-section-title manage-sheet-title"><div><p className="eyebrow">四组工作表</p><h2>全局决策、分类细节、最终行程和处理记录</h2></div></div>
-        <div className="sheet-grid simple-sheet-grid">{[["候选决策台","统一比较大类、子分类、价格、位置和团队诉求"],["六张分类明细","住宿、美食、密室、室内休闲、景点与攻略"],["行程首页","最终网页的唯一内容来源"],["投递汇总 / 处理报告","查看链接和文字是否成功整理、还缺什么"]].map(([name, desc], index) => <div className={`sheet-card ${index === 0 ? "primary-sheet" : ""}`} key={name}><b>{String(index + 1).padStart(2, "0")}</b><div><strong>{name}</strong><p>{desc}</p></div></div>)}</div>
+        <div className="simple-section-title manage-sheet-title"><div><p className="eyebrow">五组工作表</p><h2>全局决策、AI 建议、分类细节、最终行程和处理记录</h2></div></div>
+        <div className="sheet-grid simple-sheet-grid">{[["候选决策台","统一比较大类、子分类、价格、位置和团队诉求"],["AI审阅建议","逐条查看、采纳或忽略 DeepSeek 的初步建议"],["六张分类明细","住宿、美食、密室、室内休闲、景点与攻略"],["行程首页","最终网页的唯一内容来源"],["投递汇总 / 处理报告","查看链接和文字是否成功整理、还缺什么"]].map(([name, desc], index) => <div className={`sheet-card ${index === 0 ? "primary-sheet" : ""}`} key={name}><b>{String(index + 1).padStart(2, "0")}</b><div><strong>{name}</strong><p>{desc}</p></div></div>)}</div>
 
         <details className="advanced-settings"><summary>查看运行状态</summary><div className="settings-card"><div className="setting-row"><div><span>当前分析方式</span><strong>{state.settings.provider}</strong></div><span className="setting-state good">已配置</span></div><div className="setting-row"><div><span>本地后台</span><strong>{connected ? "正在运行" : "未连接"}</strong></div><span className={`setting-state ${connected ? "good" : ""}`}>{connected ? "可用" : "请启动服务"}</span></div><div className="setting-row"><div><span>Excel 自动同步</span><strong>每 4 秒检查一次</strong></div><span className="setting-state good">已开启</span></div></div></details>
         <div className="scope-note safety"><strong>不会自动下单</strong><p>网站只负责整理和展示。住宿、餐厅、密室与门票都需要大家确认真实价格和取消政策后再预订。</p></div>
@@ -931,6 +1032,8 @@ function ReferenceCard({ place, canManage, editing, onEdit, onCancel, onSave }: 
     <h3>{place.name}</h3>
     <p>{place.manualNote || place.summary || place.pros[0] || (kind === "requirement" ? "这是一条团队偏好，用来筛选真实地点。" : "这是一份攻略线索，需要继续拆解和核实具体地点。")}</p>
     <div className="place-tags">{[...new Set([place.subCategory, ...place.featureTags, ...place.tags].filter(Boolean))].slice(0, 8).map((tag) => <span key={tag}>{tag}</span>)}</div>
+    {place.planningSuggestions?.length ? <p className="candidate-ai-note"><b>AI建议时段：</b>{place.planningSuggestions.join(" · ")}</p> : null}
+    {place.candidateLeads?.length ? <p className="candidate-ai-note"><b>待核实线索：</b>{place.candidateLeads.map((lead) => `${lead.name}（${lead.area}）`).join(" · ")}</p> : null}
     {place.keyMissing?.length ? <p className="candidate-missing"><b>还需补充：</b>{place.keyMissing.join(" · ")}</p> : null}
     {editing && <CandidateEditor place={place} onCancel={onCancel} onSave={onSave} />}
     <div className="reference-actions">{place.sourceUrl && <a href={place.sourceUrl} target="_blank" rel="noreferrer">查看原始来源</a>}{canManage && !editing && <button className="small-button" onClick={onEdit}>修改整理结果</button>}</div>
