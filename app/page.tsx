@@ -247,24 +247,24 @@ type BudgetAdvice = {
 };
 
 const EMPTY_STATE: AppState = {
-  project: { name: "济州岛三日旅行共创", destination: "韩国济州岛", days: 3, people: 6, budget: 0, status: "方案共创中", tagline: "六个人一起把济州岛的链接和想法整理成可执行计划。" },
-  tripProfile: { dates: "2026年8月21日–23日（周五–周日）", schedule: "3 天 2 晚 · 国际航班直达济州", groupSize: 6, nights: 2, stayPreference: "济州市区交通方便、环境舒适，适合 6 人入住并可简单做饭", barbecue: "待团队确认", breakfasts: ["民宿简餐或附近早餐", "民宿简餐或附近早餐"], activity: "东线自然景观、海岸步道与济州美食", accommodationBudget: "六人两晚约 ¥1,800–3,000" },
+  project: { name: "济州岛轻松三日旅行共创", destination: "韩国济州岛", days: 3, people: 6, budget: 0, status: "方案共创中", tagline: "六个人一起把济州岛的轻松行程整理成可执行计划。" },
+  tripProfile: { dates: "2026年8月28日–30日（周五–周日）", schedule: "8月27日提前抵达 · 28/29日西线与牛岛按天气互换 · 30日中午返程 · 连住3晚", groupSize: 6, nights: 3, stayPreference: "济州市区交通方便、环境舒适，适合 6 人连住 3 晚并一起做饭", barbecue: "待团队确认", breakfasts: ["民宿简餐", "民宿简餐", "附近早午餐"], activity: "西线海岸、牛岛骑行和民宿晚餐", accommodationBudget: "六人三晚总价待真实房源确认" },
   links: [],
   places: [],
   itinerary: { day0: [], day1: [], day2: [] },
   reservations: [],
   finalPlan: {
     version: "excel-home-v1",
-    title: "我的出行共创项目",
-    destination: "待确定目的地",
-    dates: "2026年8月21日–23日（周五–周日）",
-    schedule: "3 天 2 晚 · 国际航班直达济州",
+    title: "6 人济州岛轻松三日旅行共创",
+    destination: "韩国济州岛",
+    dates: "2026年8月28日–30日（周五–周日）",
+    schedule: "8月27日提前抵达 · 28/29日西线与牛岛按天气互换 · 30日中午返程 · 连住3晚",
     people: 6,
-    nights: 2,
+    nights: 3,
     perPersonBudget: "¥6,000 / 人（包含往返济州机票）",
     roundTripFlightPerPerson: "待填写实际含税票价（含托运行李）",
-    summary: "六人总预算约 ¥36,000（¥6,000/人，包含往返济州机票）；机票价格确认后，再分配住宿、餐饮、交通、游玩和机动金。餐饮仍按正餐约 ¥100/人并可穿插民宿做饭，岛内交通公交优先、必要时短途拼车。",
-    stay: { name: "未选择", address: "待补充", capacity: "6 人", roomsBeds: "优先整租并确认厨房可用", twoNightTotal: "六人两晚约 ¥1,800–3,000", checkInOut: "待补充", barbecue: "非硬性条件", bbqEquipment: "按需确认", breakfast: "民宿简餐或附近早餐", sourceUrl: "" },
+    summary: "8月27日提前抵达；28日至29日每天约9点出门，只安排一个主方向和一个二选一备选。中午在外吃，傍晚回民宿一起做饭；30日中午开始返程。",
+    stay: { name: "待选择｜济州市区六人整租民宿", address: "济州市区或机场东侧", capacity: "6 人连住 3 晚", roomsBeds: "优先整租并确认厨房可用", twoNightTotal: "六人三晚总价待确认", checkInOut: "8月27日入住 · 8月30日退房", barbecue: "非硬性条件", bbqEquipment: "按需确认", breakfast: "民宿简餐或附近早午餐", sourceUrl: "" },
     itinerary: [],
     reservations: [],
     updatedAt: "",
@@ -349,7 +349,7 @@ function voteSummary(place: Place) {
 
 function importantDetails(place: Place, teamPeople: number) {
   const d = place.details;
-  if (place.category === "住宿") return [["位置", d.address], ["两晚价格", !isPending(d.twoNightTotal) ? d.twoNightTotal : place.priceLabel], ["户型 / 房间", `${d.roomType} / ${d.rooms}`], ["床位 / 床型", `${d.beds} / ${d.bedTypes}`], [`${teamPeople} 人容量`, d.capacity], ["烧烤", d.barbecue], ["额外费用", d.extraFees], ["取消政策", d.cancellationPolicy]];
+  if (place.category === "住宿") return [["位置", d.address], ["住宿总价", !isPending(d.twoNightTotal) ? d.twoNightTotal : place.priceLabel], ["户型 / 房间", `${d.roomType} / ${d.rooms}`], ["床位 / 床型", `${d.beds} / ${d.bedTypes}`], [`${teamPeople} 人容量`, d.capacity], ["烧烤", d.barbecue], ["额外费用", d.extraFees], ["取消政策", d.cancellationPolicy]];
   if (place.category === "餐饮") return [["餐饮分类", place.subCategory], ["位置", d.address], ["参考人均", place.priceLabel], ["团队总价", d.sixPersonTotal], ["招牌菜", d.signatureDishes], ["包间 / 团队", `${d.privateRoom} / ${d.groupSuitability}`], ["排队", d.queueInfo], ["营业时间", d.openingHours]];
   if (place.category === "密室") return [["主题", d.themeName], ["位置", d.address], ["恐怖 / 难度", `${d.horrorLevel} / ${d.difficulty}`], ["规模", `${d.venueSize} / ${d.roomCount}`], [`${teamPeople}人开场`, d.sixPersonSession], ["价格", !isPending(d.sixPersonTotal) ? d.sixPersonTotal : place.priceLabel], ["时长", place.duration], ["NPC", d.npcInteraction]];
   if (place.category === "休闲娱乐") return [["休闲类型", place.subCategory], ["位置", d.address], ["参考价格", place.priceLabel], ["包含设施", d.leisureFacilities], ["能否过夜", d.overnight], ["是否含餐", d.includedMeals], ["休息区域", d.restArea], ["使用限制", d.serviceRestrictions]];
@@ -910,7 +910,7 @@ export default function Home() {
             <div className="submission-switch" role="group" aria-label="选择投递方式"><button type="button" className={submissionMode === "link" ? "selected" : ""} aria-pressed={submissionMode === "link"} onClick={() => setSubmissionMode("link")}><b>粘贴链接</b><span>攻略、民宿、餐厅或活动页面</span></button><button type="button" className={submissionMode === "text" ? "selected" : ""} aria-pressed={submissionMode === "text"} onClick={() => setSubmissionMode("text")}><b>直接写想法</b><span>没有链接，也能表达自己的诉求</span></button></div>
             {submissionMode === "link"
               ? <><label htmlFor="urls">链接列表</label><textarea id="urls" value={urls} onChange={(event) => setUrls(event.target.value)} placeholder={"粘贴攻略、民宿、密室或餐厅链接……\n每行一个，也可以一次粘贴多个"} /></>
-              : <><label htmlFor="ideaText">你想要什么</label><textarea id="ideaText" value={ideaText} onChange={(event) => setIdeaText(event.target.value.slice(0, 4000))} placeholder={"例如：我想住济州市区交通方便的酒店，6 个人入住，两晚总价不要太高，附近最好有黑猪烤肉和早餐。"} /><div className="text-counter">{ideaText.length} / 4000</div></>}
+              : <><label htmlFor="ideaText">你想要什么</label><textarea id="ideaText" value={ideaText} onChange={(event) => setIdeaText(event.target.value.slice(0, 4000))} placeholder={"例如：我想住济州市区交通方便的民宿，6 个人连住三晚，要有厨房和公共区域，住宿总价不要太高。"} /><div className="text-counter">{ideaText.length} / 4000</div></>}
             <div className="form-row"><label>大概是什么<select value={category} onChange={(event) => setCategory(event.target.value)}>{categories.map((item) => <option key={item}>{item}</option>)}</select></label><label>你的昵称（必填）<input value={submitter} onChange={(event) => rememberNickname(event.target.value)} placeholder="例如：小王" maxLength={20} aria-required="true" /></label></div>
             <label>补充说明（可选）<input value={note} onChange={(event) => setNote(event.target.value)} placeholder="例如：这是我最在意的条件，优先级比较高" /></label>
             <button className="primary wide" disabled={sending}>{sending ? "正在提交……" : submissionMode === "text" ? "交给 DeepSeek 整理" : "开始读取并整理"}</button><p className="form-hint">文字会按“团队偏好”保存，不会冒充真实商户信息；链接若需要登录或验证码，会明确标记为读取受限。</p>
@@ -1183,7 +1183,7 @@ function PlanEditor({ plan, saving, onChange, onCancel, onSave }: {
             <EditorField label="详细地址" value={plan.stay.address} onChange={(value) => updateStay("address", value)} wide />
             <EditorField label="适合人数" value={plan.stay.capacity} onChange={(value) => updateStay("capacity", value)} />
             <EditorField label="房间 / 床位" value={plan.stay.roomsBeds} onChange={(value) => updateStay("roomsBeds", value)} />
-            <EditorField label="两晚总价" value={plan.stay.twoNightTotal} onChange={(value) => updateStay("twoNightTotal", value)} />
+            <EditorField label="住宿总价" value={plan.stay.twoNightTotal} onChange={(value) => updateStay("twoNightTotal", value)} />
             <EditorField label="入住 / 退房" value={plan.stay.checkInOut} onChange={(value) => updateStay("checkInOut", value)} />
             <EditorField label="能否烧烤" value={plan.stay.barbecue} onChange={(value) => updateStay("barbecue", value)} multiline />
             <EditorField label="烧烤设备 / 费用" value={plan.stay.bbqEquipment} onChange={(value) => updateStay("bbqEquipment", value)} multiline />

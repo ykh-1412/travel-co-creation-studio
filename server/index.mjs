@@ -177,10 +177,10 @@ function inferFeatureTags(text, category) {
 const defaultTripProfile = {
   planVersion: "three-day-v1",
   dates: "待团队确认",
-  schedule: "3 天 2 晚 · 国际航班直达济州",
+  schedule: "8月27日提前抵达 · 28/29日西线与牛岛按天气互换 · 30日中午返程 · 连住3晚",
   groupSize: 6,
-  nights: 2,
-  stayPreference: "济州市区交通方便、环境舒适，适合 6 人入住",
+  nights: 3,
+  stayPreference: "济州市区交通方便、环境舒适，适合 6 人连住3晚并一起做饭",
   barbecue: "待团队确认",
   breakfasts: ["第 2 天早餐待选", "第 3 天早餐待选"],
   activity: "东线自然景观、海岸步道与济州美食",
@@ -190,7 +190,7 @@ const defaultTripProfile = {
 const defaultReservations = [
   { id: "reserve-dates-flight", item: "确定日期与国际直达济州往返航班", type: "机票", targetTime: "第 1 天抵达 · 第 3 天返程", status: "待确认", owner: "待认领", deadline: "优先完成", note: "不要购买经首尔转韩国国内线的方案；六人的去回航班与行李额需统一" },
   { id: "reserve-entry", item: "逐人核对济州免签、K-ETA 与入境材料", type: "入境", targetTime: "订票前与出发前各核对一次", status: "待确认", owner: "待认领", deadline: "订票前", note: "向航司、韩国出入境 1345 或官方渠道确认最新要求；入境由边检最终判断" },
-  { id: "reserve-stay", item: "6 人济州市区住宿（2 晚）", type: "住宿", targetTime: "第 1 天入住 · 第 3 天退房", status: "待补充真实链接", owner: "待认领", deadline: "日期确认后立即", note: "比较房型、床型、含税总价、厨房、位置和取消政策" },
+  { id: "reserve-stay", item: "6 人济州市区整租民宿（3 晚）", type: "住宿", targetTime: "8月27日入住 · 8月30日退房", status: "待补充真实链接", owner: "待认领", deadline: "日期确认后立即", note: "比较房型、床型、含税总价、厨房、公共区域、位置和取消政策" },
   { id: "reserve-charter", item: "第 2 天东线公交 + 必要时短途拼车", type: "交通", targetTime: "第 2 天约 08:00–20:00", status: "待确认公交班次", owner: "待认领", deadline: "出发前 14 天", note: "先查 111/112 急行或 201 干线；接驳不便时再由六人分摊短途车费" },
   { id: "reserve-food", item: "两顿特色正餐 + 民宿做饭 / 宵夜", type: "餐饮", targetTime: "第 1/2 天", status: "待补充真实链接", owner: "待认领", deadline: "住宿和公交路线确定后", note: "特色正餐按人均约 ¥100，早餐约 ¥20–30；其余可买菜做饭或吃简餐宵夜" },
   { id: "reserve-attractions", item: "景点开放、天气与牛岛分支", type: "景点", targetTime: "第 2 天", status: "待确认", owner: "待认领", deadline: "出发前 3 天与当天早晨", note: "优先免费海岸、市场和步道；贵景点不强制保留" },
@@ -298,9 +298,9 @@ function sanitizeFinalPlan(input, current) {
     title: submittedText(source, "title", previous.title || "我的出行共创项目", 120, false),
     destination: submittedText(source, "destination", previous.destination || "待确定目的地", 80, false),
     dates: submittedText(source, "dates", previous.dates || "待团队确认", 120),
-    schedule: submittedText(source, "schedule", previous.schedule || "3 天 2 晚 · 国际航班直达济州", 160),
+    schedule: submittedText(source, "schedule", previous.schedule || "8月27日提前抵达 · 正式游玩3天 · 连住3晚", 160),
     people: boundedInteger(source.people, boundedInteger(previous.people, 4, 1, 50), 1, 50),
-    nights: boundedInteger(source.nights, boundedInteger(previous.nights, 2, 1, 30), 1, 30),
+    nights: boundedInteger(source.nights, boundedInteger(previous.nights, 3, 1, 30), 1, 30),
     perPersonBudget: submittedText(source, "perPersonBudget", previous.perPersonBudget || "待团队确认", 80),
     roundTripFlightPerPerson: submittedText(source, "roundTripFlightPerPerson", previous.roundTripFlightPerPerson || "待填写实际含税票价（含托运行李）", 120),
     summary: submittedText(source, "summary", previous.summary || "", 1_000),
@@ -484,8 +484,8 @@ function normalizeState(raw) {
       address: "待补充民宿详细地址",
       capacity: `目标 ${state.project.people} 人，待房源确认`,
       roomsBeds: "优先整租 2–3 间卧室，并确认厨房可用",
-      twoNightTotal: "六人两晚约 ¥1,800–3,000（以日期和真实房源为准）",
-      checkInOut: "第 1 天入住 · 第 3 天退房",
+      twoNightTotal: "六人三晚总价待真实房源确认",
+      checkInOut: "8月27日入住 · 8月30日退房",
       barbecue: "非本次硬性条件，按团队投递再确认",
       bbqEquipment: "如选择可烧烤住宿，再核对设备、食材和清洁费用",
       breakfast: "两顿早餐具体门店待团队选择",
@@ -1251,7 +1251,7 @@ function buildBudgetSnapshot(state) {
   const missingInputs = [];
   if (!target) missingInputs.push("人均总预算");
   if (includesFlights && !flight) missingInputs.push("往返济州机票人均含税价格（含行李）");
-  if (!stay) missingInputs.push("住宿含税两晚总价");
+  if (!stay) missingInputs.push("住宿含税总价");
   if (!finalPlan.stay?.sourceUrl) missingInputs.push("住宿真实链接和动态价格");
   if (zeroCostItems) missingInputs.push(`${zeroCostItems} 个行程项目的实际费用`);
   const unpricedPlaces = (state.places || []).filter((place) => normalizeCandidateType(place.candidateType, place) === "place" && !Number.isFinite(Number(place.price))).length;
@@ -1846,7 +1846,7 @@ const headers = {
   report: ["ID", "来源类型", "提交人", "页面标题 / 需求名称", "原始内容", "大类", "子分类", "读取结果", "整理结果", "生成候选数", "结果说明", "已提取信息", "缺失信息", "错误原因", "原始链接", "更新时间"],
   decisions: ["ID", "记录类型", "核实状态", "大类", "子分类", "名称", "区域 / 位置", "参考价格", "核心规格", "特征标签", "主要亮点", "主要风险", "资料完整度", "缺失信息", "AI推荐分", "AI评分说明", "AI建议时段", "AI候选线索", "AI估价依据", "想去票", "可以票", "不考虑票", "人工结论", "是否入选", "人工备注", "人工保护字段", "来源类型", "团队原始诉求", "原始链接"],
   requirements: ["ID", "需求名称", "大类", "子分类", "偏好标签", "目标区域", "预算", "期望时长", "需求摘要", "已表达条件", "仍需匹配", "提交人", "团队原始诉求", "处理状态", "人工结论", "是否采用", "人工备注"],
-  stays: ["ID", "名称", "子分类", "特征标签", "区域", "详细地址", "地段特点", "核心景点距离", "每晚价格", "两晚总价", "额外费用", "押金", "适合人数", "户型", "房间", "床位", "床型", "卫浴", "环境特点", "是否整租", "厨房", "能否烧烤", "烧烤设备/费用", "早餐", "停车", "交通", "入住时间", "退房时间", "取消政策", "预订要求", "预订状态", "优点", "缺点", "推荐分", "资料完整度", "缺失信息", "证据摘要", "想去票", "可以票", "不考虑票", "投票详情", "人工结论", "是否入选", "人工备注", "人工保护字段", "来源类型", "团队原始诉求", "原始链接", "数据状态"],
+  stays: ["ID", "名称", "子分类", "特征标签", "区域", "详细地址", "地段特点", "核心景点距离", "每晚价格", "住宿总价", "额外费用", "押金", "适合人数", "户型", "房间", "床位", "床型", "卫浴", "环境特点", "是否整租", "厨房", "能否烧烤", "烧烤设备/费用", "早餐", "停车", "交通", "入住时间", "退房时间", "取消政策", "预订要求", "预订状态", "优点", "缺点", "推荐分", "资料完整度", "缺失信息", "证据摘要", "想去票", "可以票", "不考虑票", "投票详情", "人工结论", "是否入选", "人工备注", "人工保护字段", "来源类型", "团队原始诉求", "原始链接", "数据状态"],
   food: ["ID", "名称", "子分类", "特征标签", "适合安排", "区域", "详细地址", "人均价格", "团队预计总价", "招牌菜", "包间", "团队适合度", "排队情况", "营业时间", "预约要求", "取消政策", "停车", "环境特点", "预订状态", "优点", "缺点", "推荐分", "资料完整度", "缺失信息", "证据摘要", "想去票", "可以票", "不考虑票", "投票详情", "人工结论", "是否入选", "人工备注", "人工保护字段", "来源类型", "团队原始诉求", "原始链接", "数据状态"],
   escapes: ["ID", "名称", "主题名称", "子分类", "特征标签", "区域", "详细地址", "单人价格", "团队预计总价", "恐怖程度", "难度", "玩法类型", "场地规模", "房间数量", "推荐人数", "最少人数", "最多人数", "团队独立开场", "时长", "NPC/真人互动", "体力消耗", "换装", "营业时间", "预约要求", "取消政策", "停车", "预订状态", "优点", "缺点", "推荐分", "资料完整度", "缺失信息", "证据摘要", "想去票", "可以票", "不考虑票", "投票详情", "人工结论", "是否入选", "人工备注", "人工保护字段", "来源类型", "团队原始诉求", "原始链接", "数据状态"],
   leisure: ["ID", "名称", "子分类", "特征标签", "区域", "详细地址", "人均/套餐价格", "团队预计总价", "包含设施", "套餐内容", "营业时间", "能否过夜", "是否含餐", "休息区域", "独立房间", "男女分区", "适合人数", "使用限制", "环境特点", "停车", "预约要求", "取消政策", "预订状态", "优点", "缺点", "推荐分", "资料完整度", "缺失信息", "证据摘要", "想去票", "可以票", "不考虑票", "投票详情", "人工结论", "是否入选", "人工备注", "人工保护字段", "来源类型", "团队原始诉求", "原始链接", "数据状态"],
@@ -1870,7 +1870,7 @@ const sheetDescriptions = {
   "室内休闲": "按汗蒸、桑拿、洗浴、温泉等分类；比较套餐、设施、过夜、餐食和使用限制。",
   "景点户外": "园林、博物馆、历史街区和户外项目；当前优先确认具体地点、票价、开放时间与天气影响。",
   "攻略文章": "攻略完整明细：摘要、避坑、证据和缺失信息；决策状态请统一到“候选决策台”修改。",
-  "三日行程": "济州岛 3 天 2 晚初版安排；日期、航班和动态价格仍需团队确认。",
+  "三日行程": "济州岛 8月27日提前抵达、28至30日轻松三日安排；航班和动态价格仍需团队确认。",
   "预订清单": "所有需要团队确认或下单的事项；网站不会代替你付款。",
   "AI审阅建议": "DeepSeek 对当前 Excel 与行程快照的审阅记录；建议不会直接覆盖投票、入选结论或人工锁定字段。",
   "项目设置": "本次团队出行的需求约束与运行设置。",
@@ -2100,9 +2100,9 @@ function writeFinalPlanSheet(workbook, state) {
     ["方案标题", fp.title, "显示为网站主标题"],
     ["目的地", fp.destination, "城市或主要目的地"],
     ["出行日期", fp.dates, "确定日期后直接在黄色单元格修改"],
-    ["行程结构", fp.schedule, "例如：3 天 2 晚 · 国际航班直达济州"],
+    ["行程结构", fp.schedule, "例如：提前抵达 · 正式游玩 3 天 · 连住 3 晚"],
     ["同行人数", fp.people, "用于住宿、餐饮和活动人数判断"],
-    ["住宿晚数", fp.nights, "当前按 3 天 2 晚设计"],
+    ["住宿晚数", fp.nights, "当前按提前一天抵达、连住 3 晚设计"],
     ["人均预算", fp.perPersonBudget, "可填写数字或预算区间"],
     ["往返机票 / 人", fp.roundTripFlightPerPerson, "填写含税、行李额后的每人实际往返票价"],
     ["方案说明", fp.summary, "网站首页的行程摘要"],
@@ -2112,7 +2112,7 @@ function writeFinalPlanSheet(workbook, state) {
     ["详细地址", stay.address, "尽量填写完整门牌或平台可见地址"],
     ["适合人数", stay.capacity, `确认房源允许 ${fp.people} 人入住`],
     ["房间 / 床位", stay.roomsBeds, "写清房间数、床型和床数"],
-    ["两晚总价", stay.twoNightTotal, "填写含清洁费、服务费后的总价"],
+    ["住宿总价", stay.twoNightTotal, "填写三晚含清洁费、服务费后的总价"],
     ["入住 / 退房", stay.checkInOut, "填写具体时间和延迟入住限制"],
     ["能否烧烤", stay.barbecue, "非硬性条件，需要时再核对"],
     ["烧烤设备 / 费用", stay.bbqEquipment, "烤炉、炭火、食材、清洁费与限制"],
@@ -2304,7 +2304,7 @@ async function syncToExcel(state) {
       const missing = [...new Set([...(link?.missingFields || []), ...quality.missing])].join("；");
       return [item.id, item.name, item.subCategory, item.featureTags.join("；"), item.area, d.address, d.locationHighlights, d.distanceToCore, item.price, d.twoNightTotal, d.extraFees, d.deposit, d.capacity, d.roomType, d.rooms, d.beds, d.bedTypes, d.bathrooms, d.environment, d.entireRental, d.kitchen, d.barbecue, d.bbqEquipment, d.breakfast, d.parking, d.transport, d.checkIn, d.checkOut, d.cancellationPolicy, d.reservation, d.bookingStatus, item.pros.join("；"), item.cons.join("；"), item.score, candidateCompletenessRatio(item, quality), missing, d.evidence, ...placeVoteColumns(item), item.decisionStatus || "待比较", item.selected ? "是" : "否", item.manualNote || "", manualOverrideSummary(item), link?.sourceType || (item.sourceId ? "链接" : "示例"), link?.inputText || "", item.sourceUrl, item.dataStatus];
     }), headers.stays.length);
-    styleEditableFields(staySheet, headers.stays, stays.length, ["名称", "子分类", "特征标签", "区域", "详细地址", "每晚价格", "两晚总价", "适合人数", "户型", "房间", "床位", "床型", "卫浴", "能否烧烤", "烧烤设备/费用", "取消政策"]);
+    styleEditableFields(staySheet, headers.stays, stays.length, ["名称", "子分类", "特征标签", "区域", "详细地址", "每晚价格", "住宿总价", "适合人数", "户型", "房间", "床位", "床型", "卫浴", "能否烧烤", "烧烤设备/费用", "取消政策"]);
     formatCandidateColumns(staySheet, headers.stays, stays.length);
 
     const food = realPlaces.filter((item) => item.category === "餐饮");
@@ -2540,7 +2540,7 @@ function importFinalPlanHome(workbook, state) {
       address: String(field("详细地址", existing.stay.address)),
       capacity: String(field("适合人数", existing.stay.capacity)),
       roomsBeds: String(field("房间 / 床位", existing.stay.roomsBeds)),
-      twoNightTotal: field("两晚总价", existing.stay.twoNightTotal),
+      twoNightTotal: field("住宿总价", field("两晚总价", existing.stay.twoNightTotal)),
       checkInOut: String(field("入住 / 退房", existing.stay.checkInOut)),
       barbecue: String(field("能否烧烤", existing.stay.barbecue)),
       bbqEquipment: String(field("烧烤设备 / 费用", existing.stay.bbqEquipment)),
@@ -2572,7 +2572,7 @@ async function importFromExcel() {
   const state = await readState();
   const hasFinalPlanHome = importFinalPlanHome(workbook, state);
   const configs = [
-    { sheetName: "住宿候选", category: "住宿", priceColumn: "每晚价格", detailColumns: { address: "详细地址", locationHighlights: "地段特点", distanceToCore: "核心景点距离", capacity: "适合人数", roomType: "户型", rooms: "房间", beds: "床位", bedTypes: "床型", bathrooms: "卫浴", twoNightTotal: "两晚总价", extraFees: "额外费用", deposit: "押金", environment: "环境特点", entireRental: "是否整租", kitchen: "厨房", barbecue: "能否烧烤", bbqEquipment: "烧烤设备/费用", breakfast: "早餐", parking: "停车", transport: "交通", checkIn: "入住时间", checkOut: "退房时间", cancellationPolicy: "取消政策", reservation: "预订要求", bookingStatus: "预订状态", evidence: "证据摘要" } },
+    { sheetName: "住宿候选", category: "住宿", priceColumn: "每晚价格", detailColumns: { address: "详细地址", locationHighlights: "地段特点", distanceToCore: "核心景点距离", capacity: "适合人数", roomType: "户型", rooms: "房间", beds: "床位", bedTypes: "床型", bathrooms: "卫浴", twoNightTotal: "住宿总价", extraFees: "额外费用", deposit: "押金", environment: "环境特点", entireRental: "是否整租", kitchen: "厨房", barbecue: "能否烧烤", bbqEquipment: "烧烤设备/费用", breakfast: "早餐", parking: "停车", transport: "交通", checkIn: "入住时间", checkOut: "退房时间", cancellationPolicy: "取消政策", reservation: "预订要求", bookingStatus: "预订状态", evidence: "证据摘要" } },
     { sheetName: "美食餐饮", category: "餐饮", priceColumn: "人均价格", detailColumns: { usage: "适合安排", address: "详细地址", sixPersonTotal: "团队预计总价", signatureDishes: "招牌菜", privateRoom: "包间", groupSuitability: "团队适合度", queueInfo: "排队情况", openingHours: "营业时间", reservation: "预约要求", cancellationPolicy: "取消政策", parking: "停车", environment: "环境特点", bookingStatus: "预订状态", evidence: "证据摘要" } },
     { sheetName: "密室候选", category: "密室", priceColumn: "单人价格", durationColumn: "时长", detailColumns: { themeName: "主题名称", address: "详细地址", sixPersonTotal: "团队预计总价", horrorLevel: "恐怖程度", difficulty: "难度", escapeStyle: "玩法类型", venueSize: "场地规模", roomCount: "房间数量", capacity: "推荐人数", minPlayers: "最少人数", maxPlayers: "最多人数", sixPersonSession: "团队独立开场", npcInteraction: "NPC/真人互动", physicalIntensity: "体力消耗", costume: "换装", openingHours: "营业时间", reservation: "预约要求", cancellationPolicy: "取消政策", parking: "停车", bookingStatus: "预订状态", evidence: "证据摘要" } },
     { sheetName: "室内休闲", category: "休闲娱乐", priceColumn: "人均/套餐价格", detailColumns: { address: "详细地址", sixPersonTotal: "团队预计总价", leisureFacilities: "包含设施", packageInfo: "套餐内容", openingHours: "营业时间", overnight: "能否过夜", includedMeals: "是否含餐", restArea: "休息区域", privateRoom: "独立房间", genderArrangement: "男女分区", capacity: "适合人数", serviceRestrictions: "使用限制", environment: "环境特点", parking: "停车", reservation: "预约要求", cancellationPolicy: "取消政策", bookingStatus: "预订状态", evidence: "证据摘要" } },
